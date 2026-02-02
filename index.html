@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Yournal</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header>
+    <h1>Yournal <span id="headerBadge" class="header-badge hidden"></span></h1>
+    <div id="phase"></div>
+  </header>
+
+  <main id="main">
+
+    <!-- NOT_STARTED view -->
+    <section id="viewNotStarted" class="view">
+      <div class="start-section">
+        <div class="start-voice-area">
+          <button id="btnStartVoice" class="btn btn-voice btn-voice-start" onclick="toggleStartVoice()">
+            <span id="startVoiceIcon">&#x1F3A4;</span>
+            <span id="startVoiceLabel">Snakk inn</span>
+          </button>
+          <div id="startVoiceStatus"></div>
+        </div>
+        <input id="startDayText" type="text" placeholder="F.eks. &laquo;Starter med SJA og kj&oslash;ret&oslash;ysjekk&raquo;" class="start-input" />
+        <button id="btnStart" class="btn btn-primary btn-large" onclick="startDayWithVoice()">Start dagen</button>
+      </div>
+      <div id="historySection">
+        <h2>Tidligere dager</h2>
+        <div id="historyList"></div>
+      </div>
+    </section>
+
+    <!-- ACTIVE view -->
+    <section id="viewActive" class="view">
+      <div id="voiceArea">
+        <button id="btnVoice" class="btn btn-voice" onclick="toggleVoice()">
+          <span id="voiceIcon">&#x1F3A4;</span>
+          <span id="voiceLabel">Trykk for &aring; snakke</span>
+        </button>
+        <div id="voiceStatus"></div>
+      </div>
+
+      <div id="inputArea">
+        <div id="inputRow">
+          <select id="entryType">
+            <option value="notat">Notat</option>
+            <option value="hendelse">Hendelse</option>
+            <option value="vaktlogg">Vaktlogg</option>
+            <option value="friksjon">Friksjonsm&aring;ling</option>
+            <option value="pause">Pause</option>
+            <option value="kjoring">Kj&oslash;ring</option>
+          </select>
+          <input id="entryText" type="text" placeholder="Tekst fra tale eller skriv..." />
+        </div>
+        <button id="btnRegister" class="btn btn-primary" onclick="submitEntry()">Registrer</button>
+      </div>
+
+      <div id="orchestrationPanel" class="hidden"></div>
+
+      <div id="schemasPanel" class="hidden"></div>
+
+      <div id="entriesList"></div>
+
+      <div id="draftPanel" class="hidden"></div>
+
+      <button id="btnEnd" class="btn btn-secondary btn-large" onclick="endDay()">Avslutt dagen</button>
+    </section>
+
+    <!-- FINISHED view -->
+    <section id="viewFinished" class="view">
+      <h2>Dagslogg &ndash; gjennomgang</h2>
+      <div id="finishedSummary"></div>
+      <div id="confirmedSchemas"></div>
+      <div id="confirmedDrafts"></div>
+      <div id="finishedEntries"></div>
+      <button id="btnLock" class="btn btn-primary btn-large" onclick="lockDay()">Godkjenn og l&aring;s</button>
+    </section>
+
+    <!-- LOCKED view -->
+    <section id="viewLocked" class="view">
+      <h2>Dagen er l&aring;st</h2>
+      <div id="lockedSummary"></div>
+      <div id="confirmedDraftsLocked"></div>
+      <div id="lockedEntries"></div>
+      <div id="lockedSchemaOutput"></div>
+      <button class="btn btn-secondary btn-large" onclick="startNewDay()">Start ny dag</button>
+    </section>
+
+    <!-- History detail view -->
+    <section id="viewHistory" class="view">
+      <button class="btn btn-back" onclick="showView('NOT_STARTED')">&larr; Tilbake</button>
+      <h2 id="historyDetailTitle"></h2>
+      <div id="historyDetailSummary"></div>
+      <div id="historyDetailEntries"></div>
+    </section>
+
+  </main>
+
+  <!-- Edit overlay -->
+  <div id="editOverlay" class="overlay hidden">
+    <div class="overlay-content">
+      <h3>Rediger entry</h3>
+      <select id="editType">
+        <option value="notat">Notat</option>
+        <option value="hendelse">Hendelse</option>
+        <option value="vaktlogg">Vaktlogg</option>
+        <option value="friksjon">Friksjonsm&aring;ling</option>
+        <option value="pause">Pause</option>
+        <option value="kjoring">Kj&oslash;ring</option>
+      </select>
+      <input id="editText" type="text" />
+      <div class="overlay-buttons">
+        <button class="btn btn-primary" onclick="saveEdit()">Lagre</button>
+        <button class="btn btn-secondary" onclick="cancelEdit()">Avbryt</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pre-day overlay -->
+  <div id="preDayOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-preday">
+      <div id="preDayContent"></div>
+    </div>
+  </div>
+
+  <!-- Schema edit overlay -->
+  <div id="schemaEditOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-schema-edit">
+      <div id="schemaEditContent"></div>
+    </div>
+  </div>
+
+  <!-- Schema decision overlay (end of day) -->
+  <div id="schemaDecisionOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-decision">
+      <div id="schemaDecisionContent"></div>
+    </div>
+  </div>
+
+  <!-- Draft decision overlay (end of day) -->
+  <div id="draftDecisionOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-decision">
+      <div id="draftDecisionContent"></div>
+    </div>
+  </div>
+
+  <!-- Draft view overlay -->
+  <div id="draftViewOverlay" class="overlay hidden">
+    <div class="overlay-content">
+      <div id="draftViewContent"></div>
+    </div>
+  </div>
+
+  <!-- Draft edit overlay -->
+  <div id="draftEditOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-draft-edit">
+      <h3>Rediger timeark-kladd</h3>
+      <label class="edit-label">Ordre</label>
+      <input id="editDraftOrdre" type="text" readonly />
+      <label class="edit-label">Fra tid (HH:MM)</label>
+      <input id="editDraftFra" type="text" placeholder="08:30" />
+      <label class="edit-label">Til tid (HH:MM)</label>
+      <input id="editDraftTil" type="text" placeholder="14:00" />
+      <label class="edit-label">Ressurser (kommaseparert)</label>
+      <input id="editDraftRessurser" type="text" placeholder="lagsbil, hjullaster" />
+
+      <label class="edit-label">L&oslash;nnskoder</label>
+      <div id="lonnskodeList"></div>
+      <div class="lonnskode-add-row">
+        <select id="newLonnskodeKode">
+          <option value="ORD">ORD (Ordin&aelig;r)</option>
+          <option value="OT50">OT50 (Overtid 50%)</option>
+          <option value="OT100">OT100 (Overtid 100%)</option>
+          <option value="NATT">NATT (Nattillegg)</option>
+        </select>
+        <input id="newLonnskodeFra" type="text" placeholder="Fra" style="width:60px" />
+        <input id="newLonnskodeTil" type="text" placeholder="Til" style="width:60px" />
+        <button class="btn btn-small" onclick="addLonnskode()">+ Legg til</button>
+      </div>
+
+      <div class="overlay-buttons">
+        <button class="btn btn-primary" onclick="saveDraftEdit()">Lagre</button>
+        <button class="btn btn-secondary" onclick="closeDraftEdit()">Avbryt</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RUH Question overlay (after hendelse) -->
+  <div id="ruhQuestionOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-ruh">
+      <div id="ruhQuestionContent"></div>
+    </div>
+  </div>
+
+  <!-- Immediate Confirm overlay (vaktlogg) -->
+  <div id="immediateConfirmOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-vaktlogg">
+      <div id="immediateConfirmContent"></div>
+    </div>
+  </div>
+
+  <!-- Friksjon Decision overlay (end of day) -->
+  <div id="friksjonDecisionOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-decision">
+      <div id="friksjonDecisionContent"></div>
+    </div>
+  </div>
+
+  <!-- Note Decision overlay (end of day) -->
+  <div id="noteDecisionOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-decision">
+      <div id="noteDecisionContent"></div>
+    </div>
+  </div>
+
+  <!-- Conversion Target overlay -->
+  <div id="conversionTargetOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-conversion">
+      <div id="conversionTargetContent"></div>
+    </div>
+  </div>
+
+  <!-- Time Entry overlay (comprehensive timesheet entry at end of day) -->
+  <div id="timeEntryOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-timeentry">
+      <div id="timeEntryContent"></div>
+    </div>
+  </div>
+
+  <!-- Storage Error overlay -->
+  <div id="storageErrorOverlay" class="overlay hidden">
+    <div class="overlay-content overlay-error">
+      <h3>Datafeil oppdaget</h3>
+      <p class="error-desc">Lagrede data kunne ikke leses. Dette kan skyldes korrupt data i nettleseren.</p>
+      <p class="error-detail" id="storageErrorDetail"></p>
+      <div class="error-actions">
+        <button class="btn btn-primary" onclick="resetCurrentDayOnly()">Nullstill aktiv dag</button>
+        <button class="btn btn-secondary" onclick="tryIgnoreError()">Pr&oslash;v likevel</button>
+      </div>
+      <p class="error-note">Historikk blir ikke slettet med mindre du velger det.</p>
+    </div>
+  </div>
+
+  <!-- Stale Day banner -->
+  <div id="staleDayBanner" class="stale-day-banner hidden">
+    <div class="stale-day-content">
+      <span class="stale-day-icon">&#x26A0;</span>
+      <span class="stale-day-text">Du har en p&aring;g&aring;ende dag fra <strong id="staleDayDate"></strong></span>
+    </div>
+    <div class="stale-day-actions">
+      <button class="btn btn-small btn-primary" onclick="continueStaleDay()">Fortsett</button>
+      <button class="btn btn-small btn-secondary" onclick="endStaleDay()">Avslutt n&aring;</button>
+      <button class="btn btn-small btn-danger" onclick="discardStaleDay()">Forkast</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
