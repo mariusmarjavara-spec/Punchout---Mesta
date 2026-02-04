@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useMotorState, useMotor, Schema, UxState, DayLog } from "@/hooks/use-motor-state";
 import { VoiceButton } from "./voice-button";
 import { cn } from "@/lib/utils";
@@ -108,11 +108,22 @@ export function StartDayPhase() {
   const [lang, setLang] = useState<Language>('NO');
   const t = UI_TEXT[lang];
 
+  // UI-only state machine for start phase flow
+  const [startUIState, setStartUIState] = useState<'idle' | 'listening' | 'review'>('idle');
+  const [voiceTranscript, setVoiceTranscript] = useState<string | null>(null);
+
   const greeting = useMemo(() => getTimeBasedGreeting(lang), [lang]);
 
   // Determine sub-phase
   const isNotStarted = appState === 'NOT_STARTED';
   const isPreDay = appState === 'ACTIVE' && dayLog?.phase === 'pre';
+
+  // Auto-transition from listening to review when voice stops
+  useEffect(() => {
+    if (startUIState === 'listening' && !isListening) {
+      setStartUIState('review');
+    }
+  }, [isListening, startUIState]);
 
   // Check if we're editing a schema (overlay state)
   const isEditingSchema = uxState?.activeOverlay === 'schema_edit' && uxState?.schemaId;
@@ -156,8 +167,8 @@ export function StartDayPhase() {
     window.open(url, '_blank');
   };
 
-  // --- NOT_STARTED: Show start button ---
-  if (isNotStarted) {
+  // --- NOT_STARTED: Show start button (idle state) ---
+  if (isNotStarted && startUIState === 'idle') {
     return (
       <div className="flex min-h-screen flex-col px-4 py-8">
         {/* Language toggle - upper right corner */}
@@ -183,9 +194,12 @@ export function StartDayPhase() {
             </div>
 
             <VoiceButton
-              isListening={!!isListening}
-              onClick={() => motor?.toggleVoice()}
-              label={isListening ? "Lytter..." : t.start_button}
+              isListening={false}
+              onClick={() => {
+                setStartUIState('listening');
+                motor?.toggleVoice();
+              }}
+              label={t.start_button}
               size="xl"
               disabled={!voiceSupported}
             />
@@ -199,13 +213,56 @@ export function StartDayPhase() {
     );
   }
 
+  // --- NOT_STARTED: Listening state ---
+  if (isNotStarted && startUIState === 'listening') {
+    return (
+      <div className="flex min-h-screen flex-col px-4 py-8">
+        {/* Language toggle - upper right corner */}
+        <div className="flex justify-end mb-8">
+          <button
+            onClick={() => setLang(lang === 'NO' ? 'EN' : 'NO')}
+            type="button"
+            className="flex items-center gap-2 rounded-lg bg-secondary/50 px-3 py-2 text-sm font-medium text-muted-foreground transition-all hover:bg-secondary"
+          >
+            <Languages className="h-4 w-4" />
+            {lang}
+          </button>
+        </div>
+
+        {/* Main content - centered */}
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <div className="flex flex-col items-center gap-8">
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-foreground">{greeting}</h1>
+              <p className="mt-2 text-lg text-muted-foreground">
+                {t.ready_message}
+              </p>
+            </div>
+
+            <VoiceButton
+              isListening={true}
+              onClick={() => motor?.toggleVoice()}
+              label="Lytter..."
+              size="xl"
+              disabled={!voiceSupported}
+            />
+
+            <p className="max-w-xs text-center text-sm text-muted-foreground">
+              Trykk igjen for å gå videre
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // --- Schema Edit Overlay (during pre-day) ---
   if (isPreDay && isEditingSchema && motor && dayLog && uxState) {
     return <PreDaySchemaEditOverlay dayLog={dayLog} uxState={uxState} motor={motor} />;
   }
 
-  // --- ACTIVE (pre): Show pre-day suggestions ---
-  if (isPreDay) {
+  // --- Review state OR ACTIVE (pre): Show pre-day suggestions ---
+  if (startUIState === 'review' || isPreDay) {
     // Helper for schema labels
     const getSchemaLabel = (schemaType: string): string => {
       if (schemaType === "sja_preday") return t.sja_label;
