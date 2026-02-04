@@ -100,6 +100,8 @@ export function StartDayPhase() {
   const appState = useMotorState('appState');
   const dayLog = useMotorState('dayLog');
   const uxState = useMotorState('uxState');
+  const isListening = useMotorState('isListening');
+  const voiceSupported = useMotorState('voiceSupported');
   const motor = useMotor();
 
   // Language toggle (UI-only, not motor state)
@@ -181,10 +183,11 @@ export function StartDayPhase() {
             </div>
 
             <VoiceButton
-              isListening={false}
-              onClick={handleStartDay}
-              label={t.start_button}
+              isListening={!!isListening}
+              onClick={() => motor?.toggleVoice()}
+              label={isListening ? "Lytter..." : t.start_button}
               size="xl"
+              disabled={!voiceSupported}
             />
 
             <p className="max-w-xs text-center text-sm text-muted-foreground">
@@ -211,7 +214,7 @@ export function StartDayPhase() {
     };
 
     return (
-      <div className="flex min-h-screen flex-col px-4 py-8">
+      <div className="flex min-h-screen flex-col px-4 py-8 pb-24">
         {/* Language toggle - upper right corner */}
         <div className="flex justify-end mb-4">
           <button

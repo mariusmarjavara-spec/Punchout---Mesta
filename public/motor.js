@@ -167,12 +167,12 @@ var PRE_DAY_SCHEMAS = {
     label: "Daglig kj\u00f8ret\u00f8ysjekk",
     triggers: ["kj\u00f8ret\u00f8ysjekk", "bilsjekk", "sjekk av bil", "kj\u00f8ret\u00f8y"],
     fields: {
-      kjoretoy:    { label: "Kj\u00f8ret\u00f8y",    type: "string",  required: true },
-      dato:        { label: "Dato",        type: "date",    required: true },
-      lys_ok:      { label: "Lys OK",      type: "boolean", required: false },
-      bremser_ok:  { label: "Bremser OK",  type: "boolean", required: false },
-      dekk_ok:     { label: "Dekk OK",     type: "boolean", required: false },
-      kommentar:   { label: "Kommentar",   type: "string",  required: false }
+      kjoretoy: { label: "Kj\u00f8ret\u00f8y", type: "string", required: true },
+      dato: { label: "Dato", type: "date", required: true },
+      lys_ok: { label: "Lys OK", type: "boolean", required: false },
+      bremser_ok: { label: "Bremser OK", type: "boolean", required: false },
+      dekk_ok: { label: "Dekk OK", type: "boolean", required: false },
+      kommentar: { label: "Kommentar", type: "string", required: false }
     }
   },
   sja_preday: {
@@ -180,13 +180,13 @@ var PRE_DAY_SCHEMAS = {
     label: "SJA (f\u00f8r arbeid)",
     triggers: ["sja", "sikker jobb"],
     fields: {
-      oppgave:         { label: "Oppgave",         type: "string", required: true },
-      sted:            { label: "Sted",            type: "string", required: false },
-      risiko:          { label: "Risiko",          type: "string", required: false },
-      konsekvens:      { label: "Konsekvens",      type: "string", required: true },  // Never auto-fill
-      tiltak:          { label: "Tiltak",          type: "string", required: true },  // Never auto-fill
-      arbeidsvarsling: { label: "Arbeidsvarsling", type: "enum",   required: false, options: ["ingen", "enkel", "manuell", "full"] },
-      godkjent:        { label: "Godkjent",        type: "boolean",required: true }
+      oppgave: { label: "Oppgave", type: "string", required: true },
+      sted: { label: "Sted", type: "string", required: false },
+      risiko: { label: "Risiko", type: "string", required: false },
+      konsekvens: { label: "Konsekvens", type: "string", required: true },  // Never auto-fill
+      tiltak: { label: "Tiltak", type: "string", required: true },  // Never auto-fill
+      arbeidsvarsling: { label: "Arbeidsvarsling", type: "enum", required: false, options: ["ingen", "enkel", "manuell", "full"] },
+      godkjent: { label: "Godkjent", type: "boolean", required: true }
     }
   }
 };
@@ -197,12 +197,12 @@ var RUNNING_SCHEMAS = {
     label: "Skademelding",
     triggers: ["skademelding", "skade p\u00e5", "skadet"],
     fields: {
-      tidspunkt:      { label: "Tidspunkt",       type: "time",   required: true },
-      sted:           { label: "Sted",            type: "string", required: false },
-      beskrivelse:    { label: "Beskrivelse",     type: "string", required: true },
-      involverte:     { label: "Involverte",      type: "string", required: false },
-      vitner:         { label: "Vitner",          type: "string", required: false },
-      tiltak_utfort:  { label: "Tiltak utf\u00f8rt",   type: "string", required: false }  // User fills
+      tidspunkt: { label: "Tidspunkt", type: "time", required: true },
+      sted: { label: "Sted", type: "string", required: false },
+      beskrivelse: { label: "Beskrivelse", type: "string", required: true },
+      involverte: { label: "Involverte", type: "string", required: false },
+      vitner: { label: "Vitner", type: "string", required: false },
+      tiltak_utfort: { label: "Tiltak utf\u00f8rt", type: "string", required: false }  // User fills
     }
   },
   uonsket_hendelse: {
@@ -210,10 +210,10 @@ var RUNNING_SCHEMAS = {
     label: "U\u00f8nsket hendelse",
     triggers: ["u\u00f8nsket hendelse", "nestenulykke", "avvik", "nesten ulykke"],
     fields: {
-      tidspunkt:       { label: "Tidspunkt",      type: "time",   required: true },
-      beskrivelse:     { label: "Beskrivelse",    type: "string", required: true },
-      arsak:           { label: "\u00c5rsak",            type: "string", required: false },  // User fills
-      forslag_tiltak:  { label: "Forslag tiltak", type: "string", required: false }   // User fills
+      tidspunkt: { label: "Tidspunkt", type: "time", required: true },
+      beskrivelse: { label: "Beskrivelse", type: "string", required: true },
+      arsak: { label: "\u00c5rsak", type: "string", required: false },  // User fills
+      forslag_tiltak: { label: "Forslag tiltak", type: "string", required: false }   // User fills
     }
   },
   ad_hoc: {
@@ -221,8 +221,8 @@ var RUNNING_SCHEMAS = {
     label: "Egendefinert skjema",
     triggers: [],  // Only manually selected
     fields: {
-      tittel:   { label: "Tittel",   type: "string", required: true },
-      innhold:  { label: "Innhold",  type: "string", required: false }
+      tittel: { label: "Tittel", type: "string", required: true },
+      innhold: { label: "Innhold", type: "string", required: false }
     }
   }
 };
@@ -237,9 +237,9 @@ var DRIFT_SCHEMAS = {
     label: "Hendelse",
     triggers: ["hendelse", "skjedde", "oppsto"],
     fields: {
-      tidspunkt:    { label: "Tidspunkt",    type: "time",   required: true },
-      beskrivelse:  { label: "Beskrivelse",  type: "string", required: true },
-      sted:         { label: "Sted",         type: "string", required: false }
+      tidspunkt: { label: "Tidspunkt", type: "time", required: true },
+      beskrivelse: { label: "Beskrivelse", type: "string", required: true },
+      sted: { label: "Sted", type: "string", required: false }
     }
   },
   vaktlogg: {
@@ -248,8 +248,8 @@ var DRIFT_SCHEMAS = {
     triggers: ["vaktlogg", "loggf\u00f8r", "logg dette"],
     requiresImmediateConfirm: true,
     fields: {
-      tidspunkt:    { label: "Tidspunkt",    type: "time",   required: true },
-      innhold:      { label: "Innhold",      type: "string", required: true }
+      tidspunkt: { label: "Tidspunkt", type: "time", required: true },
+      innhold: { label: "Innhold", type: "string", required: true }
     }
   },
   friksjonsmaling: {
@@ -258,10 +258,10 @@ var DRIFT_SCHEMAS = {
     triggers: ["friksjon", "friksjonsm\u00e5ling", "m\u00e5lte friksjon"],
     confirmedAtEndOfDay: true,
     fields: {
-      tidspunkt:    { label: "Tidspunkt",    type: "time",   required: true },
-      sted:         { label: "Sted",         type: "string", required: true },
-      verdi:        { label: "Verdi",        type: "number", required: true },
-      kommentar:    { label: "Kommentar",    type: "string", required: false }
+      tidspunkt: { label: "Tidspunkt", type: "time", required: true },
+      sted: { label: "Sted", type: "string", required: true },
+      verdi: { label: "Verdi", type: "number", required: true },
+      kommentar: { label: "Kommentar", type: "string", required: false }
     }
   },
   ruh: {
@@ -269,11 +269,11 @@ var DRIFT_SCHEMAS = {
     label: "RUH (Rapport Uønsket Hendelse)",
     triggers: [],  // Only via explicit conversion from hendelse
     fields: {
-      tidspunkt:       { label: "Tidspunkt",       type: "time",   required: true },
-      beskrivelse:     { label: "Beskrivelse",     type: "string", required: true },
-      sted:            { label: "Sted",            type: "string", required: false },
-      arsak:           { label: "Årsak",           type: "string", required: true },  // NEVER_AUTO_FILL
-      tiltak:          { label: "Tiltak",          type: "string", required: true }   // NEVER_AUTO_FILL
+      tidspunkt: { label: "Tidspunkt", type: "time", required: true },
+      beskrivelse: { label: "Beskrivelse", type: "string", required: true },
+      sted: { label: "Sted", type: "string", required: false },
+      arsak: { label: "Årsak", type: "string", required: true },  // NEVER_AUTO_FILL
+      tiltak: { label: "Tiltak", type: "string", required: true }   // NEVER_AUTO_FILL
     }
   },
   // PAUSE: Informational only
@@ -287,7 +287,7 @@ var DRIFT_SCHEMAS = {
     triggers: ["pause", "lunsj", "matpause", "lunsjpause", "tilbake fra pause"],
     informationalOnly: true,  // Marker: ingen beslutningsflyt
     fields: {
-      tidspunkt:  { label: "Tidspunkt", type: "time", required: false }  // Auto-set to now
+      tidspunkt: { label: "Tidspunkt", type: "time", required: false }  // Auto-set to now
     }
   }
 };
@@ -301,34 +301,34 @@ var CONVERSION_SCHEMAS = {
     id: "loggbok_kjoretoy_v0",
     label: "Loggbok kj\u00f8ret\u00f8y",
     fields: {
-      dato:        { label: "Dato",        type: "date",   required: true },
-      kjoretoy:    { label: "Kj\u00f8ret\u00f8y",    type: "string", required: true },
-      innhold:     { label: "Innhold",     type: "string", required: true }
+      dato: { label: "Dato", type: "date", required: true },
+      kjoretoy: { label: "Kj\u00f8ret\u00f8y", type: "string", required: true },
+      innhold: { label: "Innhold", type: "string", required: true }
     }
   },
   forbedringsforslag: {
     id: "forbedringsforslag_v0",
     label: "Forbedringsforslag",
     fields: {
-      tittel:       { label: "Tittel",       type: "string", required: true },
-      beskrivelse:  { label: "Beskrivelse",  type: "string", required: true },
-      begrunnelse:  { label: "Begrunnelse",  type: "string", required: false }
+      tittel: { label: "Tittel", type: "string", required: true },
+      beskrivelse: { label: "Beskrivelse", type: "string", required: true },
+      begrunnelse: { label: "Begrunnelse", type: "string", required: false }
     }
   },
   kvalitetsavvik: {
     id: "kvalitetsavvik_v0",
     label: "Kvalitetsavvik",
     fields: {
-      beskrivelse:  { label: "Beskrivelse",  type: "string", required: true },
-      arsak:        { label: "\u00c5rsak",        type: "string", required: true },  // NEVER_AUTO_FILL
-      tiltak:       { label: "Tiltak",       type: "string", required: true }   // NEVER_AUTO_FILL
+      beskrivelse: { label: "Beskrivelse", type: "string", required: true },
+      arsak: { label: "\u00c5rsak", type: "string", required: true },  // NEVER_AUTO_FILL
+      tiltak: { label: "Tiltak", type: "string", required: true }   // NEVER_AUTO_FILL
     }
   },
   huskelapp: {
     id: "huskelapp_v0",
     label: "Huskelapp (intern)",
     fields: {
-      innhold:  { label: "Innhold",  type: "string", required: true }
+      innhold: { label: "Innhold", type: "string", required: true }
     }
   }
 };
@@ -803,10 +803,15 @@ function setupVoice() {
   recognition.maxAlternatives = 1;
   recognition.continuous = false;
 
-  recognition.onresult = function(event) {
+  recognition.onresult = function (event) {
     var transcript = event.results[0][0].transcript;
 
     if (REACT_MODE) {
+      // If user speaks before day is started, start the day first
+      if (appState === "NOT_STARTED") {
+        startDay();
+      }
+
       // In React mode, submit entry directly and stop listening
       var guessed = guessEntryType(transcript);
       submitEntry(transcript, guessed);
@@ -836,7 +841,7 @@ function setupVoice() {
     }
   };
 
-  recognition.onerror = function(event) {
+  recognition.onerror = function (event) {
     var msg = "Feil: ";
     if (event.error === "no-speech") {
       msg = "Ingen tale fanget opp";
@@ -864,7 +869,7 @@ function setupVoice() {
     }
   };
 
-  recognition.onend = function() {
+  recognition.onend = function () {
     if (isListening) {
       if (REACT_MODE) {
         isListening = false;
@@ -992,7 +997,7 @@ function setStartVoiceStatus(msg) {
 // Handle pre-day schema triggers from voice in start phase
 function handlePreDaySchemasFromVoice(detectedSchemas, transcript) {
   // Show a message that schemas were detected
-  var schemaNames = detectedSchemas.map(function(key) {
+  var schemaNames = detectedSchemas.map(function (key) {
     var schema = PRE_DAY_SCHEMAS[key];
     return schema ? schema.label : key;
   }).join(", ");
@@ -1276,7 +1281,7 @@ function showNextDecision() {
 
 function getFriksjonsPendingDecision() {
   if (!dayLog || !dayLog.schemas) return [];
-  return dayLog.schemas.filter(function(s) {
+  return dayLog.schemas.filter(function (s) {
     return s.type === "friksjonsmaling" && s.status === "draft";
   });
 }
@@ -1533,7 +1538,7 @@ function renderPreDayContent() {
   var content = document.getElementById("preDayContent");
   if (!content || !dayLog) return;
 
-  var preDaySchemas = dayLog.schemas.filter(function(s) { return s.origin === "pre_day"; });
+  var preDaySchemas = dayLog.schemas.filter(function (s) { return s.origin === "pre_day"; });
 
   if (preDaySchemas.length === 0) {
     hidePreDayOverlay();
@@ -1583,7 +1588,7 @@ function renderPreDayContent() {
 
   html += '<div class="preday-buttons">';
   // Show "skip all" for any remaining draft schemas that aren't required
-  var hasSkippable = preDaySchemas.some(function(s) {
+  var hasSkippable = preDaySchemas.some(function (s) {
     return !isSchemaRequired(s.type) && s.status === "draft";
   });
   if (hasSkippable) {
@@ -1602,10 +1607,10 @@ function renderPreDayContent() {
 
 function getRequiredSchemasNotConfirmed() {
   if (!dayLog || !dayLog.schemas) return [];
-  return dayLog.schemas.filter(function(s) {
+  return dayLog.schemas.filter(function (s) {
     return s.origin === "pre_day" &&
-           isSchemaRequired(s.type) &&
-           s.status !== "confirmed";
+      isSchemaRequired(s.type) &&
+      s.status !== "confirmed";
   });
 }
 
@@ -2006,7 +2011,7 @@ function renderSchemasPanel() {
   if (!container) return;
 
   var schemas = dayLog ? dayLog.schemas : [];
-  var activeSchemas = schemas.filter(function(s) {
+  var activeSchemas = schemas.filter(function (s) {
     return s.status === "draft" || s.status === "skipped";
   });
 
@@ -2045,7 +2050,7 @@ function renderSchemasPanel() {
 
 function getSchemasPendingDecision() {
   if (!dayLog || !dayLog.schemas) return [];
-  return dayLog.schemas.filter(function(s) {
+  return dayLog.schemas.filter(function (s) {
     // Exclude SJA from end-of-day decisions - it's confirmed only in PRE-DAY
     if (s.type === "sja_preday") return false;
     return s.status === "draft" || s.status === "skipped";
@@ -2327,7 +2332,7 @@ function renderConfirmedSchemas() {
   var container = document.getElementById("confirmedSchemas");
   if (!container || !dayLog) return;
 
-  var confirmed = dayLog.schemas.filter(function(s) { return s.status === "confirmed"; });
+  var confirmed = dayLog.schemas.filter(function (s) { return s.status === "confirmed"; });
   if (confirmed.length === 0) {
     container.innerHTML = "";
     return;
@@ -2627,7 +2632,7 @@ function renderOrchestrationPanel() {
   container.classList.remove("hidden");
 
   // Auto-hide after 8 seconds
-  setTimeout(function() {
+  setTimeout(function () {
     container.classList.add("hidden");
   }, 8000);
 }
@@ -2702,7 +2707,7 @@ function showDraftDecisionOverlay() {
     html += '<div class="decision-row"><span class="decision-label">Utstyr</span><span>' + escapeHtml(draft.ressurser.join(", ")) + '</span></div>';
   }
   if (draft.lonnskoder && draft.lonnskoder.length > 0) {
-    var lkText = draft.lonnskoder.map(function(lk) { return lk.kode + " (" + lk.fra + "-" + lk.til + ")"; }).join(", ");
+    var lkText = draft.lonnskoder.map(function (lk) { return lk.kode + " (" + lk.fra + "-" + lk.til + ")"; }).join(", ");
     html += '<div class="decision-row"><span class="decision-label">L\u00f8nnskoder</span><span>' + escapeHtml(lkText) + '</span></div>';
   }
   html += '<div class="decision-row"><span class="decision-label">Beskrivelse</span></div>';
@@ -3112,7 +3117,7 @@ function saveDraftEdit() {
 
     var ressStr = document.getElementById("editDraftRessurser").value;
     if (ressStr.trim()) {
-      draft.ressurser = ressStr.split(",").map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+      draft.ressurser = ressStr.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s; });
     } else {
       draft.ressurser = [];
     }
@@ -3887,37 +3892,37 @@ var SCHEMAS = {
     id: "timesheet_entry_v0",
     label: "Timel\u00f8nn",
     fields: {
-      dato:            { label: "Dato",            type: "date",   required: true },
-      start_tid:       { label: "Starttid",        type: "time",   required: true },
-      slutt_tid:       { label: "Sluttid",         type: "time",   required: true },
-      pause_minutter:  { label: "Pause (min)",     type: "number", required: false },
-      arbeidstype:     { label: "Arbeidstype",     type: "enum",   required: true, options: ["ordin\u00e6rt", "overtid"] },
-      kommentar:       { label: "Kommentar",       type: "string", required: false }
+      dato: { label: "Dato", type: "date", required: true },
+      start_tid: { label: "Starttid", type: "time", required: true },
+      slutt_tid: { label: "Sluttid", type: "time", required: true },
+      pause_minutter: { label: "Pause (min)", type: "number", required: false },
+      arbeidstype: { label: "Arbeidstype", type: "enum", required: true, options: ["ordin\u00e6rt", "overtid"] },
+      kommentar: { label: "Kommentar", type: "string", required: false }
     }
   },
   sja: {
     id: "sja_v0",
     label: "SJA",
     fields: {
-      oppgave:         { label: "Oppgave",         type: "string", required: true },
-      risiko:          { label: "Risiko",          type: "string", required: true },
-      konsekvens:      { label: "Konsekvens",      type: "string", required: true },
-      tiltak:          { label: "Tiltak",          type: "string", required: true },
-      arbeidsvarsling: { label: "Arbeidsvarsling", type: "enum",   required: true, options: ["ingen", "enkel", "manuell", "full"] },
-      godkjent:        { label: "Godkjent",        type: "boolean",required: true }
+      oppgave: { label: "Oppgave", type: "string", required: true },
+      risiko: { label: "Risiko", type: "string", required: true },
+      konsekvens: { label: "Konsekvens", type: "string", required: true },
+      tiltak: { label: "Tiltak", type: "string", required: true },
+      arbeidsvarsling: { label: "Arbeidsvarsling", type: "enum", required: true, options: ["ingen", "enkel", "manuell", "full"] },
+      godkjent: { label: "Godkjent", type: "boolean", required: true }
     }
   },
   additional_work: {
     id: "additional_work_timesheet_v0",
     label: "Tilleggsarbeid",
     fields: {
-      oppdragsnummer:    { label: "Oppdragsnr",       type: "string",   required: true },
-      dato:              { label: "Dato",              type: "date",     required: true },
-      fra_tid:           { label: "Fra tid",           type: "time",     required: true },
-      til_tid:           { label: "Til tid",           type: "time",     required: true },
-      arbeidsbeskrivelse:{ label: "Arbeidsbeskrivelse",type: "string",   required: true },
-      ressurser:         { label: "Ressurser",         type: "array",    required: false },
-      arbeidsvarsling:   { label: "Arbeidsvarsling",   type: "enum",     required: true, options: ["ingen", "enkel", "manuell", "full"] }
+      oppdragsnummer: { label: "Oppdragsnr", type: "string", required: true },
+      dato: { label: "Dato", type: "date", required: true },
+      fra_tid: { label: "Fra tid", type: "time", required: true },
+      til_tid: { label: "Til tid", type: "time", required: true },
+      arbeidsbeskrivelse: { label: "Arbeidsbeskrivelse", type: "string", required: true },
+      ressurser: { label: "Ressurser", type: "array", required: false },
+      arbeidsvarsling: { label: "Arbeidsvarsling", type: "enum", required: true, options: ["ingen", "enkel", "manuell", "full"] }
     }
   }
 };
@@ -3972,8 +3977,8 @@ function extractArbeidsvarsling(text) {
 function extractRessurser(text) {
   var lower = text.toLowerCase();
   var known = ["lagsbil", "br\u00f8ytebil", "hjullaster", "gravemaskin", "lastebil",
-               "str\u00f8bil", "feiemaskin", "kompressor", "aggregat", "trailer",
-               "pickup", "varebil", "mannskap"];
+    "str\u00f8bil", "feiemaskin", "kompressor", "aggregat", "trailer",
+    "pickup", "varebil", "mannskap"];
   var found = [];
   for (var i = 0; i < known.length; i++) {
     if (lower.indexOf(known[i]) !== -1) found.push(known[i]);
@@ -3984,7 +3989,7 @@ function extractRessurser(text) {
 function extractRisiko(text) {
   var lower = text.toLowerCase();
   var keywords = ["glatt", "h\u00f8yde", "trafikk", "str\u00f8m", "graving", "fall",
-                  "tung", "klem", "varmt", "kaldt", "m\u00f8rkt", "d\u00e5rlig sikt"];
+    "tung", "klem", "varmt", "kaldt", "m\u00f8rkt", "d\u00e5rlig sikt"];
   for (var i = 0; i < keywords.length; i++) {
     if (lower.indexOf(keywords[i]) !== -1) return keywords[i];
   }
@@ -4167,7 +4172,7 @@ function onSchemaChange() {
 
 // --- Keyboard support for edit overlay (vanilla JS mode only) ---
 if (!REACT_MODE) {
-  document.addEventListener("keydown", function(e) {
+  document.addEventListener("keydown", function (e) {
     if (editingIndex >= 0) {
       if (e.key === "Enter") saveEdit();
       if (e.key === "Escape") cancelEdit();
