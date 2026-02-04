@@ -115,9 +115,9 @@ function MainTimeEntryOverlay({ dayLog, motor }: OverlayProps) {
   return (
     <div className="flex flex-1 flex-col">
       <header className="border-b border-border bg-card px-4 py-4">
-        <h1 className="text-xl font-semibold text-foreground">Hovedtimefoering</h1>
+        <h1 className="text-xl font-semibold text-foreground">Hovedtimeføring</h1>
         <p className="text-sm text-muted-foreground">
-          Bekreft dagens arbeidstid for loenn
+          Bekreft dagens arbeidstid for lønn
         </p>
       </header>
 
@@ -150,7 +150,7 @@ function MainTimeEntryOverlay({ dayLog, motor }: OverlayProps) {
         {expanded && (
           <div className="mt-4 rounded-xl border border-border bg-card p-4">
             <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">
-              Loennskoder
+              Lønnskoder
             </h3>
             {draft.lonnskoder && draft.lonnskoder.length > 0 ? (
               <div className="space-y-2">
@@ -162,7 +162,7 @@ function MainTimeEntryOverlay({ dayLog, motor }: OverlayProps) {
                 ))}
               </div>
             ) : (
-              <p className="text-muted-foreground">Ingen loennskoder lagt til</p>
+              <p className="text-muted-foreground">Ingen lønnskoder lagt til</p>
             )}
           </div>
         )}
@@ -173,9 +173,9 @@ function MainTimeEntryOverlay({ dayLog, motor }: OverlayProps) {
             <div className="flex items-start gap-3 mb-4">
               <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
               <div>
-                <h3 className="font-semibold text-destructive">Forkast hovedtimefoering</h3>
+                <h3 className="font-semibold text-destructive">Forkast hovedtimeføring</h3>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Dette skal kun gjoeres hvis du ikke har arbeidet, eller hvis timene allerede er foert i et annet system.
+                  Dette skal kun gjøres hvis du ikke har arbeidet, eller hvis timene allerede er ført i et annet system.
                 </p>
               </div>
             </div>
@@ -188,7 +188,7 @@ function MainTimeEntryOverlay({ dayLog, motor }: OverlayProps) {
               >
                 <div className="flex-1">
                   <p className="font-medium text-foreground">Jeg har ikke arbeidet i dag</p>
-                  <p className="text-sm text-muted-foreground">Ingen timer aa foere</p>
+                  <p className="text-sm text-muted-foreground">Ingen timer å føre</p>
                 </div>
               </button>
 
@@ -198,7 +198,7 @@ function MainTimeEntryOverlay({ dayLog, motor }: OverlayProps) {
                 className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-4 text-left transition-all hover:border-destructive/50 active:scale-[0.98]"
               >
                 <div className="flex-1">
-                  <p className="font-medium text-foreground">Timene er foert i annet system</p>
+                  <p className="font-medium text-foreground">Timene er ført i annet system</p>
                   <p className="text-sm text-muted-foreground">F.eks. Maconomy, SAP, eller lignende</p>
                 </div>
               </button>
@@ -231,7 +231,7 @@ function MainTimeEntryOverlay({ dayLog, motor }: OverlayProps) {
             type="button"
             className="flex w-full items-center justify-center rounded-xl py-3 text-sm font-medium text-muted-foreground transition-all hover:text-destructive"
           >
-            Forkast timefoering...
+            Forkast timeføring...
           </button>
         )}
       </div>
@@ -284,7 +284,7 @@ function DraftDecisionOverlay({ dayLog, uxState, motor }: OverlayProps) {
           type="button"
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-4 font-semibold text-primary-foreground transition-all active:scale-[0.98]"
         >
-          Fyll inn timefoering
+          Fyll inn timeføring
         </button>
         <button
           onClick={() => motor.draftDecision("discard")}
@@ -367,7 +367,7 @@ function FriksjonDecisionOverlay({ dayLog, uxState, motor }: OverlayProps) {
             <Gauge className="h-5 w-5 text-chart-4" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-foreground">Friksjonsmaaling</h1>
+            <h1 className="text-xl font-semibold text-foreground">Friksjonsmåling</h1>
             <ProgressIndicator current={uxState.decisionIndex + 1} total={friksjonSchemas.length} />
           </div>
         </div>
@@ -480,13 +480,13 @@ function TimeEntryOverlay({ dayLog, uxState, motor }: OverlayProps) {
     <div className="flex flex-1 flex-col">
       <header className="border-b border-border bg-card px-4 py-4">
         <h1 className="text-xl font-semibold text-foreground">
-          Timefoering - Ordre {draft.ordre}
+          Timeføring – Ordre {draft.ordre}
         </h1>
       </header>
 
       <main className="flex-1 px-4 py-6">
         <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-muted-foreground">Fyll inn loennskoder og maskintimer</p>
+          <p className="text-muted-foreground">Fyll inn lønnskoder og maskintimer</p>
           {/* Motor handles the actual form rendering in existing HTML */}
         </div>
       </main>
@@ -564,7 +564,7 @@ function ExternalInstructionOverlay({ uxState, motor }: { uxState: UxState; moto
           {uxState.externalInstructions}
         </p>
         <p className="text-sm text-muted-foreground mb-6">
-          Kom tilbake hit naar du er ferdig.
+          Kom tilbake hit når du er ferdig.
         </p>
         <div className="space-y-2">
           <button
@@ -595,7 +595,7 @@ function EndDayProgress({ dayLog }: { dayLog: DayLog | null }) {
         <Clock className="h-8 w-8 text-primary animate-pulse" />
       </div>
       <h2 className="text-xl font-semibold text-foreground">Behandler...</h2>
-      <p className="text-muted-foreground mt-2">Venter paa neste steg</p>
+      <p className="text-muted-foreground mt-2">Venter på neste steg</p>
     </div>
   );
 }

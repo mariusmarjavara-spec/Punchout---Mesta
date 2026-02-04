@@ -103,11 +103,11 @@ export function OperationsPhase() {
           <VoiceButton
             isListening={false}
             onClick={() => {/* Voice input would trigger motor.submitEntry */}}
-            label="Loggfoer"
+            label="Loggfør"
             size="lg"
           />
           <p className="text-sm text-muted-foreground">
-            Trykk for aa logge hendelse, notat, eller ordre
+            Trykk for å logge hendelse, notat, eller ordre
           </p>
         </div>
 
@@ -150,7 +150,7 @@ export function OperationsPhase() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSubmitEntry()}
-              placeholder="Skriv loggfoering..."
+              placeholder="Skriv loggføring..."
               className="flex-1 rounded-lg border border-border bg-card px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
 
@@ -172,10 +172,10 @@ export function OperationsPhase() {
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <FileText className="h-12 w-12 text-muted-foreground/40" />
               <p className="mt-4 text-muted-foreground">
-                Ingen loggfoeringer ennaa
+                Ingen loggføringer ennå
               </p>
               <p className="mt-1 text-sm text-muted-foreground/70">
-                Bruk mikrofonen eller skriv for aa starte
+                Bruk mikrofonen eller skriv for å starte
               </p>
             </div>
           ) : (
@@ -215,7 +215,7 @@ export function OperationsPhase() {
                         </p>
                         {!isConfirmed && (
                           <span className="inline-block mt-2 text-xs text-accent font-medium">
-                            Venter paa bekreftelse
+                            Venter på bekreftelse
                           </span>
                         )}
                       </div>

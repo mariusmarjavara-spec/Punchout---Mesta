@@ -138,11 +138,8 @@ declare global {
  * @returns The current value of that state key (immutable snapshot)
  */
 export function useMotorState<K extends keyof MotorSnapshot>(key: K): MotorSnapshot[K] | undefined {
-  // Initialize from snapshot (handles SSR and initial render)
-  const [value, setValue] = useState<MotorSnapshot[K] | undefined>(() => {
-    if (typeof window === 'undefined') return undefined;
-    return window.Motor?.getSnapshot()?.[key];
-  });
+  // Always start undefined to avoid hydration mismatch (SSR has no window.Motor)
+  const [value, setValue] = useState<MotorSnapshot[K] | undefined>(undefined);
 
   useEffect(() => {
     // Handler for motor state changes
@@ -164,6 +161,25 @@ export function useMotorState<K extends keyof MotorSnapshot>(key: K): MotorSnaps
     const snapshot = window.Motor?.getSnapshot();
     if (snapshot) {
       setValue(snapshot[key]);
+    } else {
+      // Motor not ready yet — poll until available (handles mobile race condition)
+      const interval = setInterval(() => {
+        const s = window.Motor?.getSnapshot();
+        if (s) {
+          setValue(s[key]);
+          clearInterval(interval);
+        }
+      }, 50);
+      // Clean up polling when event listener takes over or unmount
+      const cleanup = (e: Event) => {
+        clearInterval(interval);
+      };
+      window.addEventListener('motor-state-change', cleanup, { once: true });
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('motor-state-change', handler);
+        window.removeEventListener('motor-state-change', cleanup);
+      };
     }
 
     return () => {
@@ -205,12 +221,41 @@ export function useMotorSnapshot(): MotorSnapshot | undefined {
 /**
  * Hook for calling motor functions.
  * Returns undefined if motor is not available (e.g., SSR).
+ *
+ * Polls for window.Motor availability to handle the race condition
+ * where React hydrates before motor.js finishes executing (common on mobile).
  */
 export function useMotor() {
   const [motor, setMotor] = useState<typeof window.Motor>(undefined);
 
   useEffect(() => {
-    setMotor(window.Motor);
+    // Immediate check
+    if (window.Motor) {
+      setMotor(window.Motor);
+      return;
+    }
+
+    // Poll until motor is available (handles slow mobile script loading)
+    const interval = setInterval(() => {
+      if (window.Motor) {
+        setMotor(window.Motor);
+        clearInterval(interval);
+      }
+    }, 50);
+
+    // Also listen for motor state changes as a signal that motor is ready
+    const handler = () => {
+      if (window.Motor) {
+        setMotor(window.Motor);
+        clearInterval(interval);
+      }
+    };
+    window.addEventListener('motor-state-change', handler);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('motor-state-change', handler);
+    };
   }, []);
 
   return motor;

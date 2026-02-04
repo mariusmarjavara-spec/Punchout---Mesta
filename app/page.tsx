@@ -19,19 +19,25 @@ export default function PunchoutApp() {
 
   // Local UI-only state (transitions, animations - NOT business logic)
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [prevPhase, setPrevPhase] = useState(currentPhase);
+  const [displayedPhase, setDisplayedPhase] = useState<string | null>(null);
 
   // Handle phase transitions (visual only)
+  // Skip transition on initial mount (displayedPhase is null)
   useEffect(() => {
-    if (currentPhase !== prevPhase) {
+    if (displayedPhase === null) {
+      // First render — show content immediately, no transition
+      setDisplayedPhase(currentPhase);
+      return;
+    }
+    if (currentPhase !== displayedPhase) {
       setIsTransitioning(true);
       const timer = setTimeout(() => {
-        setPrevPhase(currentPhase);
+        setDisplayedPhase(currentPhase);
         setIsTransitioning(false);
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [currentPhase, prevPhase]);
+  }, [currentPhase, displayedPhase]);
 
   // Show loading state if motor not ready
   if (!motor) {

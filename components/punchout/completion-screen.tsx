@@ -39,7 +39,7 @@ export function CompletionScreen() {
 
         {/* Message */}
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Dagen er laast</h1>
+          <h1 className="text-3xl font-bold text-foreground">Dagen er låst</h1>
           <p className="mt-2 text-lg text-muted-foreground">{dateStr}</p>
         </div>
 
@@ -54,12 +54,12 @@ export function CompletionScreen() {
             </div>
             <div className="h-px bg-border" />
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Loggfoeringer</span>
+              <span className="text-muted-foreground">Loggføringer</span>
               <span className="font-semibold text-card-foreground">{entryCount}</span>
             </div>
             <div className="h-px bg-border" />
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Skjema fullfoert</span>
+              <span className="text-muted-foreground">Skjema fullført</span>
               <span className="font-semibold text-card-foreground">{schemaCount}</span>
             </div>
           </div>

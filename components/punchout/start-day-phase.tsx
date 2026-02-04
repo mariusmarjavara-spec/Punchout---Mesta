@@ -17,18 +17,18 @@ const UI_TEXT = {
     start_button: "Start",
     text_fallback: "Du kan skrive hvis du vil",
     suggested_tasks: "Anbefalte oppgaver",
-    optional_message: "Disse er valgfrie - du kan gaa videre naar som helst",
+    optional_message: "Disse er valgfrie - du kan gå videre når som helst",
     schemas_heading: "Skjema",
     external_heading: "Eksterne systemer",
     recommended: "Anbefalt",
-    required: "Paakrevd",
+    required: "Påkrevd",
     fill_in: "Fyll ut",
     skipped: "Hoppet over",
-    open: "Aapne",
-    go_to_operations: "Gaa til drift",
-    can_return: "Du kan alltid gaa tilbake til disse senere",
-    sja_label: "SJA (foer arbeid)",
-    vehicle_check_label: "Kjoeretoeysjekk",
+    open: "Åpne",
+    go_to_operations: "Gå til drift",
+    can_return: "Du kan alltid gå tilbake til disse senere",
+    sja_label: "SJA (før arbeid)",
+    vehicle_check_label: "Kjøretøysjekk",
   },
   EN: {
     greeting_morning: "Good morning",
@@ -122,9 +122,9 @@ export function StartDayPhase() {
   }, [dayLog?.schemas]);
 
   // Check if any schemas are admin-required (via motor)
-  const getSchemaStatus = (schema: Schema): "anbefalt" | "pakrevd" => {
+  const getSchemaStatus = (schema: Schema): "anbefalt" | "påkrevd" => {
     if (motor?.isSchemaRequired(schema.type)) {
-      return "pakrevd";
+      return "påkrevd";
     }
     return "anbefalt";
   };
@@ -272,9 +272,9 @@ export function StartDayPhase() {
                           </p>
                           <span className={cn(
                             "text-xs",
-                            status === "pakrevd" ? "text-destructive" : "text-muted-foreground"
+                            status === "påkrevd" ? "text-destructive" : "text-muted-foreground"
                           )}>
-                            {status === "pakrevd" ? t.required : t.recommended}
+                            {status === "påkrevd" ? t.required : t.recommended}
                           </span>
                         </div>
                       </div>
@@ -293,7 +293,7 @@ export function StartDayPhase() {
                             >
                               {t.fill_in}
                             </button>
-                            {status !== "pakrevd" && (
+                            {status !== "påkrevd" && (
                               <button
                                 onClick={() => handleSkipSchema(schema.id)}
                                 className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
@@ -381,7 +381,7 @@ interface PreDaySchemaEditOverlayProps {
 // Schema field definitions (matching motor)
 const SCHEMA_LABELS: Record<string, { label: string; fields: Record<string, string> }> = {
   sja_preday: {
-    label: "SJA (foer arbeid)",
+    label: "SJA (før arbeid)",
     fields: {
       oppgave: "Oppgave",
       sted: "Sted",
@@ -393,9 +393,9 @@ const SCHEMA_LABELS: Record<string, { label: string; fields: Record<string, stri
     }
   },
   kjoretoyssjekk: {
-    label: "Daglig kjoeretoeysjekk",
+    label: "Daglig kjøretøysjekk",
     fields: {
-      kjoretoy: "Kjoeretoey",
+      kjoretoy: "Kjøretøy",
       dato: "Dato",
       lys_ok: "Lys OK",
       bremser_ok: "Bremser OK",
@@ -462,9 +462,9 @@ function PreDaySchemaEditOverlay({ dayLog, uxState, motor }: PreDaySchemaEditOve
         </div>
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          Skjemaredigering haandteres av motor.
+          Skjemaredigering håndteres av motor.
           <br />
-          Trykk Lagre for aa bekrefte eller Avbryt for aa gaa tilbake.
+          Trykk Lagre for å bekrefte eller Avbryt for å gå tilbake.
         </p>
       </main>
 

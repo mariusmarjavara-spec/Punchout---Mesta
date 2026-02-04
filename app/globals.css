@@ -48,8 +48,8 @@
 }
 
 @theme inline {
-  --font-sans: 'Geist', 'Geist Fallback';
-  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --font-sans: var(--font-geist-sans), 'Geist', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), 'Geist Mono', ui-monospace, SFMono-Regular, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -119,6 +119,16 @@
     @apply border-border outline-ring/50;
   }
   body {
+    /* Hex fallbacks for browsers without oklch() support */
+    background-color: #1b1b1b;
+    color: #fafafa;
     @apply bg-background text-foreground;
+  }
+}
+
+/* Fix mobile viewport height (100vh includes browser chrome on mobile Safari) */
+@supports (min-height: 100dvh) {
+  .min-h-screen {
+    min-height: 100dvh !important;
   }
 }
