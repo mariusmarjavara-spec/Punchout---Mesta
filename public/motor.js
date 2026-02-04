@@ -343,7 +343,11 @@ function getSnapshot() {
   return {
     appState: appState,
     dayLog: dayLog ? JSON.parse(JSON.stringify(dayLog)) : null,
-    uxState: JSON.parse(JSON.stringify(uxState))
+    uxState: JSON.parse(JSON.stringify(uxState)),
+    storageError: storageError ? JSON.parse(JSON.stringify(storageError)) : null,
+    isStaleDay: isStaleDay(),
+    isListening: isListening,
+    voiceSupported: !!(window.SpeechRecognition || window.webkitSpeechRecognition)
   };
 }
 
@@ -360,6 +364,8 @@ function emitAllStateChanges() {
   emitStateChange("appState");
   emitStateChange("dayLog");
   emitStateChange("uxState");
+  emitStateChange("storageError");
+  emitStateChange("isStaleDay");
 }
 
 // Expose motor interface on window for React UI bridge
@@ -413,7 +419,19 @@ window.Motor = {
   // FORBIDDEN: Focus listeners, visibility API, polling
   openExternalSystem: openExternalSystem,
   confirmExternalTask: confirmExternalTask,
-  closeExternalInstructionOverlay: closeExternalInstructionOverlay
+  closeExternalInstructionOverlay: closeExternalInstructionOverlay,
+
+  // Stale day handling (React needs these)
+  continueStaleDay: continueStaleDay,
+  endStaleDay: endStaleDay,
+  discardStaleDay: discardStaleDay,
+
+  // Storage error handling (React needs these)
+  resetCurrentDayOnly: resetCurrentDayOnly,
+  tryIgnoreError: tryIgnoreError,
+
+  // Voice
+  toggleVoice: toggleVoice
 };
 
 // --- Init ---
@@ -423,6 +441,7 @@ function init() {
 
   // In React mode, only initialize state - React handles all UI
   if (REACT_MODE) {
+    setupVoice(); // Initialize speech recognition for React voice button
     // Emit initial state for React
     emitStateChange('appState');
     emitStateChange('dayLog');
@@ -488,12 +507,22 @@ function endStaleDay() {
 
 function discardStaleDay() {
   // User wants to discard the old day
-  if (confirm("Er du sikker på at du vil forkaste dagen fra " + formatDate(dayLog.date) + "? All data vil gå tapt.")) {
-    hideStaleDayBanner();
+  if (REACT_MODE) {
+    // React UI handles confirmation dialog
     dayLog = null;
     appState = "NOT_STARTED";
     saveCurrentDay();
-    render();
+    emitAllStateChanges();
+    return;
+  }
+  if (!REACT_MODE) {
+    if (confirm("Er du sikker på at du vil forkaste dagen fra " + formatDate(dayLog.date) + "? All data vil gå tapt.")) {
+      hideStaleDayBanner();
+      dayLog = null;
+      appState = "NOT_STARTED";
+      saveCurrentDay();
+      render();
+    }
   }
 }
 
@@ -756,6 +785,7 @@ function tryIgnoreError() {
   if (!REACT_MODE) {
     document.getElementById("storageErrorOverlay").classList.add("hidden");
   }
+  emitStateChange("storageError");
   render();
 }
 
@@ -775,6 +805,15 @@ function setupVoice() {
 
   recognition.onresult = function(event) {
     var transcript = event.results[0][0].transcript;
+
+    if (REACT_MODE) {
+      // In React mode, submit entry directly and stop listening
+      var guessed = guessEntryType(transcript);
+      submitEntry(transcript, guessed);
+      isListening = false;
+      emitStateChange("isListening");
+      return;
+    }
 
     if (voiceContext === "start") {
       // Start phase - put in start text field and check for pre-day schemas
@@ -808,6 +847,14 @@ function setupVoice() {
     } else {
       msg += event.error;
     }
+
+    if (REACT_MODE) {
+      console.warn("Voice error:", msg);
+      isListening = false;
+      emitStateChange("isListening");
+      return;
+    }
+
     if (voiceContext === "start") {
       setStartVoiceStatus(msg);
       stopStartListening();
@@ -819,6 +866,11 @@ function setupVoice() {
 
   recognition.onend = function() {
     if (isListening) {
+      if (REACT_MODE) {
+        isListening = false;
+        emitStateChange("isListening");
+        return;
+      }
       if (voiceContext === "start") {
         stopStartListening();
       } else {
@@ -828,7 +880,34 @@ function setupVoice() {
   };
 }
 
+function toggleVoiceReact() {
+  if (!recognition) {
+    setupVoice();
+  }
+  if (!recognition) {
+    return; // Browser doesn't support speech
+  }
+  if (isListening) {
+    recognition.stop();
+    isListening = false;
+    emitStateChange("isListening");
+  } else {
+    isListening = true;
+    emitStateChange("isListening");
+    try {
+      recognition.start();
+    } catch (e) {
+      isListening = false;
+      emitStateChange("isListening");
+    }
+  }
+}
+
 function toggleVoice() {
+  if (REACT_MODE) {
+    toggleVoiceReact();
+    return;
+  }
   if (!recognition) {
     setVoiceStatus("Nettleseren st\u00f8tter ikke tale");
     return;
