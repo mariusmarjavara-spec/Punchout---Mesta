@@ -5,6 +5,8 @@ import { StartDayPhase } from "@/components/punchout/start-day-phase";
 import { OperationsPhase } from "@/components/punchout/operations-phase";
 import { EndDayPhase } from "@/components/punchout/end-day-phase";
 import { CompletionScreen } from "@/components/punchout/completion-screen";
+import { StaleDayBanner } from "@/components/punchout/stale-day-banner";
+import { StorageErrorOverlay } from "@/components/punchout/storage-error-overlay";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 
@@ -12,6 +14,8 @@ export default function PunchoutApp() {
   // Read state from motor (READ-ONLY)
   const appState = useMotorState('appState');
   const dayLog = useMotorState('dayLog');
+  const storageError = useMotorState('storageError');
+  const isStaleDay = useMotorState('isStaleDay');
   const motor = useMotor();
 
   // Derive current phase from motor state
@@ -48,8 +52,18 @@ export default function PunchoutApp() {
     );
   }
 
+  // Storage error takes priority over everything
+  if (storageError) {
+    return <StorageErrorOverlay error={storageError} motor={motor} />;
+  }
+
   return (
     <div className="min-h-screen bg-background">
+      {/* Stale day banner (non-blocking, shown at top) */}
+      {isStaleDay && dayLog && (
+        <StaleDayBanner date={dayLog.date} motor={motor} />
+      )}
+
       {/* Phase transition overlay */}
       <div
         className={cn(

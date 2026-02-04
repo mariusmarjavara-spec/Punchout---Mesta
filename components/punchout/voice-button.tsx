@@ -9,6 +9,7 @@ interface VoiceButtonProps {
   label: string;
   size?: "lg" | "xl";
   className?: string;
+  disabled?: boolean;
 }
 
 export function VoiceButton({
@@ -17,11 +18,13 @@ export function VoiceButton({
   label,
   size = "xl",
   className,
+  disabled = false,
 }: VoiceButtonProps) {
   return (
     <button
       onClick={onClick}
       type="button"
+      disabled={disabled}
       className={cn(
         "relative flex flex-col items-center justify-center rounded-full transition-all duration-300 active:scale-95",
         "bg-primary text-primary-foreground",
@@ -29,6 +32,7 @@ export function VoiceButton({
         size === "xl" && "h-40 w-40 text-lg",
         size === "lg" && "h-28 w-28 text-base",
         isListening && "bg-voice-active",
+        disabled && "opacity-50",
         className
       )}
       aria-label={label}

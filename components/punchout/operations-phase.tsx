@@ -36,6 +36,8 @@ const LOG_TYPE_INFO: Record<string, { icon: typeof FileText; label: string; colo
 
 export function OperationsPhase() {
   const dayLog = useMotorState('dayLog');
+  const isListening = useMotorState('isListening');
+  const voiceSupported = useMotorState('voiceSupported');
   const motor = useMotor();
 
   // UI-only state (not business logic)
@@ -101,10 +103,11 @@ export function OperationsPhase() {
         {/* Voice button area */}
         <div className="flex flex-col items-center gap-4 py-8">
           <VoiceButton
-            isListening={false}
-            onClick={() => {/* Voice input would trigger motor.submitEntry */}}
-            label="Loggfør"
+            isListening={!!isListening}
+            onClick={() => motor?.toggleVoice()}
+            label={isListening ? "Lytter..." : "Loggfør"}
             size="lg"
+            disabled={!voiceSupported}
           />
           <p className="text-sm text-muted-foreground">
             Trykk for å logge hendelse, notat, eller ordre

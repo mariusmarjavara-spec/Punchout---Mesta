@@ -81,10 +81,20 @@ export interface UxState {
 
 export type AppState = 'NOT_STARTED' | 'ACTIVE' | 'FINISHED' | 'LOCKED';
 
+export interface StorageError {
+  type: string;
+  message: string;
+  raw?: string;
+}
+
 export interface MotorSnapshot {
   appState: AppState;
   dayLog: DayLog | null;
   uxState: UxState;
+  storageError: StorageError | null;
+  isStaleDay: boolean;
+  isListening: boolean;
+  voiceSupported: boolean;
 }
 
 // Declare global Motor interface
@@ -121,6 +131,15 @@ declare global {
       openExternalSystem: (system: string, params?: Record<string, string>) => void;
       confirmExternalTask: (system: string) => void;
       closeExternalInstructionOverlay: () => void;
+      // Stale day
+      continueStaleDay: () => void;
+      endStaleDay: () => void;
+      discardStaleDay: () => void;
+      // Storage error
+      resetCurrentDayOnly: () => void;
+      tryIgnoreError: () => void;
+      // Voice
+      toggleVoice: () => void;
     };
   }
 }
