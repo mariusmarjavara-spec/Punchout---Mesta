@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useMotorState, useMotor } from "@/hooks/use-motor-state";
 import { Check, RotateCcw } from "lucide-react";
 
@@ -23,10 +24,12 @@ export function CompletionScreen() {
   const entryCount = dayLog?.entries?.length || 0;
   const schemaCount = dayLog?.schemas?.filter(s => s.status === "confirmed").length || 0;
 
+  const [isResetting, setIsResetting] = useState(false);
+
   const handleReset = () => {
-    if (motor) {
-      motor.startNewDay();
-    }
+    if (isResetting) return;
+    setIsResetting(true);
+    motor?.startNewDay();
   };
 
   return (
@@ -73,11 +76,12 @@ export function CompletionScreen() {
         {/* Reset button */}
         <button
           onClick={handleReset}
+          disabled={isResetting}
           type="button"
-          className="flex items-center gap-2 rounded-xl bg-secondary px-6 py-4 font-medium text-secondary-foreground transition-all active:scale-95"
+          className="flex items-center gap-2 rounded-xl bg-secondary px-6 py-4 font-medium text-secondary-foreground transition-all active:scale-95 disabled:opacity-50"
         >
           <RotateCcw className="h-5 w-5" />
-          Start ny dag
+          {isResetting ? "Tilbakestiller..." : "Start ny dag"}
         </button>
       </div>
     </div>

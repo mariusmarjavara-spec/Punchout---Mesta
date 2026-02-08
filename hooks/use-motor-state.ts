@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 // Type definitions for motor state
 export interface DayLog {
@@ -150,55 +150,41 @@ declare global {
  * IMPORTANT: This hook provides READ-ONLY access to motor state.
  * UI should NEVER write directly to motor state - always call motor functions.
  *
- * The motor emits 'motor-state-change' events with { detail: { key } }
- * when state changes. This hook only re-renders when the specific key changes.
+ * Uses a revision counter that increments on ANY motor-state-change event,
+ * then reads fresh from getSnapshot() during render. This ensures React
+ * always sees the latest state, even for motor functions that don't emit
+ * specific state keys (which is most of them in REACT_MODE).
  *
- * @param key - The state key to subscribe to: 'appState' | 'dayLog' | 'uxState'
- * @returns The current value of that state key (immutable snapshot)
+ * @param key - The state key to subscribe to
+ * @returns The current value of that state key, or undefined if motor not ready
  */
 export function useMotorState<K extends keyof MotorSnapshot>(key: K): MotorSnapshot[K] | undefined {
-  // Always start undefined to avoid hydration mismatch (SSR has no window.Motor)
-  const [value, setValue] = useState<MotorSnapshot[K] | undefined>(undefined);
+  // Revision counter forces re-render; actual value is read from getSnapshot() below
+  const [, setRevision] = useState(0);
 
   useEffect(() => {
-    // Handler for motor state changes
-    const handler = (e: Event) => {
-      const customEvent = e as CustomEvent<{ key: string }>;
-      // Only update if this is our key
-      if (customEvent.detail.key === key) {
-        const snapshot = window.Motor?.getSnapshot();
-        if (snapshot) {
-          setValue(snapshot[key]);
-        }
-      }
+    // ANY motor event → increment revision → re-render → fresh getSnapshot() read
+    const handler = () => {
+      setRevision(r => r + 1);
     };
 
-    // Subscribe to motor state changes
     window.addEventListener('motor-state-change', handler);
 
-    // Initial sync (in case motor state changed before effect ran)
-    const snapshot = window.Motor?.getSnapshot();
-    if (snapshot) {
-      setValue(snapshot[key]);
-    } else {
+    if (!window.Motor) {
       // Motor not ready yet — poll until available (handles mobile race condition)
       const interval = setInterval(() => {
-        const s = window.Motor?.getSnapshot();
-        if (s) {
-          setValue(s[key]);
+        if (window.Motor) {
+          setRevision(r => r + 1);
           clearInterval(interval);
         }
       }, 50);
-      // Clean up polling when event listener takes over or unmount
-      const cleanup = (e: Event) => {
-        clearInterval(interval);
-      };
-      window.addEventListener('motor-state-change', cleanup, { once: true });
       return () => {
         clearInterval(interval);
         window.removeEventListener('motor-state-change', handler);
-        window.removeEventListener('motor-state-change', cleanup);
       };
+    } else {
+      // Motor already available — trigger initial render with data
+      setRevision(r => r + 1);
     }
 
     return () => {
@@ -206,7 +192,9 @@ export function useMotorState<K extends keyof MotorSnapshot>(key: K): MotorSnaps
     };
   }, [key]);
 
-  return value;
+  // Always read fresh from source — never cache in useState
+  if (typeof window === 'undefined') return undefined;
+  return window.Motor?.getSnapshot()?.[key];
 }
 
 /**
@@ -214,50 +202,68 @@ export function useMotorState<K extends keyof MotorSnapshot>(key: K): MotorSnaps
  * Use sparingly - prefer useMotorState(key) for granular updates.
  */
 export function useMotorSnapshot(): MotorSnapshot | undefined {
-  const [snapshot, setSnapshot] = useState<MotorSnapshot | undefined>(() => {
-    if (typeof window === 'undefined') return undefined;
-    return window.Motor?.getSnapshot();
-  });
+  const [, setRevision] = useState(0);
 
   useEffect(() => {
     const handler = () => {
-      setSnapshot(window.Motor?.getSnapshot());
+      setRevision(r => r + 1);
     };
 
     window.addEventListener('motor-state-change', handler);
 
-    // Initial sync
-    setSnapshot(window.Motor?.getSnapshot());
+    if (!window.Motor) {
+      const interval = setInterval(() => {
+        if (window.Motor) {
+          setRevision(r => r + 1);
+          clearInterval(interval);
+        }
+      }, 50);
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('motor-state-change', handler);
+      };
+    } else {
+      setRevision(r => r + 1);
+    }
 
     return () => {
       window.removeEventListener('motor-state-change', handler);
     };
   }, []);
 
-  return snapshot;
+  if (typeof window === 'undefined') return undefined;
+  return window.Motor?.getSnapshot();
 }
+
+// Read-only motor functions that should NOT dispatch state-change events
+const READONLY_MOTOR_FUNCTIONS = new Set(['getSnapshot', 'isSchemaRequired']);
 
 /**
  * Hook for calling motor functions.
- * Returns undefined if motor is not available (e.g., SSR).
+ * Returns a Proxy that dispatches a motor-state-change event after every
+ * state-changing function call. This ensures useMotorState hooks re-render
+ * even when motor functions don't emit their own events (which is most of them).
+ *
+ * Read-only functions (getSnapshot, isSchemaRequired) are NOT wrapped.
  *
  * Polls for window.Motor availability to handle the race condition
  * where React hydrates before motor.js finishes executing (common on mobile).
  */
 export function useMotor() {
-  const [motor, setMotor] = useState<typeof window.Motor>(undefined);
+  const [ready, setReady] = useState(
+    typeof window !== 'undefined' && !!window.Motor
+  );
 
   useEffect(() => {
-    // Immediate check
     if (window.Motor) {
-      setMotor(window.Motor);
+      setReady(true);
       return;
     }
 
     // Poll until motor is available (handles slow mobile script loading)
     const interval = setInterval(() => {
       if (window.Motor) {
-        setMotor(window.Motor);
+        setReady(true);
         clearInterval(interval);
       }
     }, 50);
@@ -265,7 +271,7 @@ export function useMotor() {
     // Also listen for motor state changes as a signal that motor is ready
     const handler = () => {
       if (window.Motor) {
-        setMotor(window.Motor);
+        setReady(true);
         clearInterval(interval);
       }
     };
@@ -277,7 +283,27 @@ export function useMotor() {
     };
   }, []);
 
-  return motor;
+  return useMemo(() => {
+    if (!ready || typeof window === 'undefined' || !window.Motor) return undefined;
+    const motor = window.Motor;
+
+    return new Proxy(motor, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== 'function' || READONLY_MOTOR_FUNCTIONS.has(prop as string)) {
+          return value;
+        }
+        // Wrap state-changing functions to dispatch event after call
+        return (...args: unknown[]) => {
+          const result = (value as (...a: unknown[]) => unknown).apply(target, args);
+          window.dispatchEvent(
+            new CustomEvent('motor-state-change', { detail: { key: '__action__' } })
+          );
+          return result;
+        };
+      }
+    });
+  }, [ready]) as typeof window.Motor;
 }
 
 /**

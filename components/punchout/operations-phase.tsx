@@ -44,6 +44,7 @@ export function OperationsPhase() {
   const [inputText, setInputText] = useState("");
   const [selectedType, setSelectedType] = useState<string>("notat");
   const [showTypeSelector, setShowTypeSelector] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
 
   // Get entries from motor (READ-ONLY)
   const entries = dayLog?.entries || [];
@@ -60,6 +61,8 @@ export function OperationsPhase() {
 
   // Handle end day via motor
   const handleEndDay = () => {
+    if (isEnding) return;
+    setIsEnding(true);
     motor?.endDay();
   };
 
@@ -235,10 +238,11 @@ export function OperationsPhase() {
       <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-background/95 px-4 py-4 backdrop-blur-sm">
         <button
           onClick={handleEndDay}
+          disabled={isEnding}
           type="button"
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-4 font-medium text-secondary-foreground transition-all active:scale-[0.98]"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-4 font-medium text-secondary-foreground transition-all active:scale-[0.98] disabled:opacity-50"
         >
-          Avslutt dagen
+          {isEnding ? "Avslutter..." : "Avslutt dagen"}
         </button>
       </div>
     </div>

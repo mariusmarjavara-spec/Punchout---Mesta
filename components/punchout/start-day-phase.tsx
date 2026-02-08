@@ -111,6 +111,7 @@ export function StartDayPhase() {
   // UI-only state machine for start phase flow
   const [startUIState, setStartUIState] = useState<'idle' | 'listening' | 'review'>('idle');
   const [voiceTranscript, setVoiceTranscript] = useState<string | null>(null);
+  const [isContinuing, setIsContinuing] = useState(false);
 
   const greeting = useMemo(() => getTimeBasedGreeting(lang), [lang]);
 
@@ -149,6 +150,8 @@ export function StartDayPhase() {
 
   // Handle continue to drift (NEVER blocks)
   const handleContinue = () => {
+    if (isContinuing) return;
+    setIsContinuing(true);
     motor?.continueFromPreDay();
   };
 
@@ -404,15 +407,16 @@ export function StartDayPhase() {
           {/* Continue button - ALWAYS visible, NEVER blocking */}
           <button
             onClick={handleContinue}
+            disabled={isContinuing}
             type="button"
             className={cn(
               "flex w-full items-center justify-center gap-2 rounded-xl py-5 text-lg font-semibold transition-all",
               "bg-primary text-primary-foreground",
-              "active:scale-[0.98]"
+              "active:scale-[0.98] disabled:opacity-50"
             )}
           >
             <Check className="h-6 w-6" />
-            {t.go_to_operations}
+            {isContinuing ? "Starter drift..." : t.go_to_operations}
             <ChevronRight className="h-5 w-5" />
           </button>
 
