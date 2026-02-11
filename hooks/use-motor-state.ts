@@ -3,7 +3,8 @@ import { useState, useEffect, useMemo } from 'react';
 // Type definitions for motor state
 export interface DayLog {
   date: string;
-  startTime: string;
+  startTime: string | null;
+  startTimeSource?: 'pending' | 'user' | 'auto';
   endTime?: string;
   phase: 'pre' | 'active' | 'ending';
   status?: string;
@@ -14,6 +15,7 @@ export interface DayLog {
   mainTimeDiscarded?: boolean;
   mainTimeDiscardReason?: 'no_work_done' | 'logged_elsewhere';
   externalTasks?: ExternalTask[];
+  exportId?: string;
 }
 
 export interface Entry {
@@ -25,6 +27,16 @@ export interface Entry {
   vaktloggDiscarded?: boolean;
   converted?: boolean;
   keptAsNote?: boolean;
+  verified?: boolean;
+  lockedByUser?: boolean;
+}
+
+export interface ParsedEntry {
+  ordre: string;
+  fra: string | null;
+  til: string | null;
+  ressurser: string[];
+  rawText: string;
 }
 
 export interface Draft {
@@ -55,10 +67,12 @@ export interface Schema {
   id: string;
   type: string;
   origin: string;
-  status: 'draft' | 'confirmed' | 'skipped' | 'discarded';
+  status: 'draft' | 'confirmed' | 'skipped' | 'discarded' | 'deferred' | 'force_skipped';
   fields: Record<string, unknown>;
   createdAt: string;
   confirmedAt?: string;
+  forceSkippedAt?: string;
+  linkedEntries?: number[];
 }
 
 export interface ExternalTask {
@@ -73,13 +87,24 @@ export interface UxState {
   activeOverlay: string | null;
   schemaId: string | null;
   draftOrdre: string | null;
-  decisionPhase: string | null;
-  decisionIndex: number;
   externalSystem?: string;
   externalInstructions?: string;
 }
 
-export type AppState = 'NOT_STARTED' | 'ACTIVE' | 'FINISHED' | 'LOCKED';
+export type AppState = 'NOT_STARTED' | 'ACTIVE' | 'LOCKED';
+
+export interface UnresolvedItem {
+  id: string;
+  kind: 'schema' | 'friksjon' | 'main_time' | 'draft';
+  label: string;
+  data: Record<string, unknown>;
+}
+
+export interface OutboxStatus {
+  pending: number;
+  sent: number;
+  failed: number;
+}
 
 export interface StorageError {
   type: string;
@@ -95,6 +120,12 @@ export interface MotorSnapshot {
   isStaleDay: boolean;
   isListening: boolean;
   voiceSupported: boolean;
+  editingIndex: number;
+  outboxStatus: OutboxStatus;
+  exportEnabled: boolean;
+  readyToLock: boolean;
+  unresolvedCount: number;
+  exportStatus: 'disabled' | 'sending' | 'sent' | 'failed' | 'no_data';
 }
 
 // Declare global Motor interface
@@ -107,6 +138,7 @@ declare global {
       lockDay: () => void;
       startNewDay: () => void;
       submitEntry: (text?: string, type?: string) => void;
+      confirmStartTime: (timeString?: string) => void;
       openSchemaEdit: (schemaId: string) => void;
       closeSchemaEdit: () => void;
       saveSchemaEdit: () => void;
@@ -126,8 +158,15 @@ declare global {
       showPreDayOverlay: () => void;
       hidePreDayOverlay: () => void;
       continueFromPreDay: () => void;
+      forceStartDay: () => void;
       skipPreDaySchema: (schemaId: string) => void;
       isSchemaRequired: (schemaType: string) => boolean;
+      // Entry editing
+      openEdit: (index: number) => void;
+      saveEdit: (index: number, newText: string) => void;
+      cancelEdit: () => void;
+      // Pre-day schema deferral
+      deferPreDaySchema: (schemaId: string) => void;
       openExternalSystem: (system: string, params?: Record<string, string>) => void;
       confirmExternalTask: (system: string) => void;
       closeExternalInstructionOverlay: () => void;
@@ -140,6 +179,16 @@ declare global {
       tryIgnoreError: () => void;
       // Voice
       toggleVoice: () => void;
+      // Structured entry (verify at moment of input)
+      parseEntry: (text: string) => ParsedEntry | null;
+      confirmStructuredEntry: (text: string, type: string, parsed: ParsedEntry) => void;
+      // Håndrens (flat verification)
+      getUnresolvedItems: () => UnresolvedItem[];
+      resolveItem: (id: string, action: string, data?: Record<string, unknown>) => void;
+      // Export
+      syncExports: () => void;
+      // Report
+      buildHumanReadableReport: (log: DayLog) => string;
     };
   }
 }
@@ -236,7 +285,7 @@ export function useMotorSnapshot(): MotorSnapshot | undefined {
 }
 
 // Read-only motor functions that should NOT dispatch state-change events
-const READONLY_MOTOR_FUNCTIONS = new Set(['getSnapshot', 'isSchemaRequired']);
+const READONLY_MOTOR_FUNCTIONS = new Set(['getSnapshot', 'isSchemaRequired', 'toggleVoice', 'buildHumanReadableReport', 'getUnresolvedItems', 'parseEntry']);
 
 /**
  * Hook for calling motor functions.
@@ -311,7 +360,7 @@ export function useMotor() {
  * This is a pure function - no side effects.
  */
 export function derivePhase(appState: AppState | undefined, dayLog: DayLog | null | undefined):
-  'start' | 'operations' | 'end' | 'complete' {
+  'start' | 'operations' | 'handrens' | 'complete' {
 
   if (!appState || appState === 'NOT_STARTED') {
     return 'start';
@@ -321,13 +370,9 @@ export function derivePhase(appState: AppState | undefined, dayLog: DayLog | nul
     return 'complete';
   }
 
-  if (appState === 'FINISHED') {
-    return 'complete';
-  }
-
   if (appState === 'ACTIVE') {
     if (dayLog?.phase === 'ending') {
-      return 'end';
+      return 'handrens';
     }
     if (dayLog?.phase === 'pre') {
       return 'start'; // Still in pre-day phase

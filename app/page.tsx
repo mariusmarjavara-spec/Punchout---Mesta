@@ -3,7 +3,7 @@
 import { useMotorState, useMotor, derivePhase } from "@/hooks/use-motor-state";
 import { StartDayPhase } from "@/components/punchout/start-day-phase";
 import { OperationsPhase } from "@/components/punchout/operations-phase";
-import { EndDayPhase } from "@/components/punchout/end-day-phase";
+import { HandrensPhase } from "@/components/punchout/handrens-phase";
 import { CompletionScreen } from "@/components/punchout/completion-screen";
 import { StaleDayBanner } from "@/components/punchout/stale-day-banner";
 import { StorageErrorOverlay } from "@/components/punchout/storage-error-overlay";
@@ -87,8 +87,8 @@ export default function PunchoutApp() {
           <OperationsPhase />
         )}
 
-        {currentPhase === "end" && (
-          <EndDayPhase />
+        {currentPhase === "handrens" && (
+          <HandrensPhase />
         )}
 
         {currentPhase === "complete" && (

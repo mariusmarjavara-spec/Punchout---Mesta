@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useMotorState, useMotor, Entry } from "@/hooks/use-motor-state";
+import { useState, useRef, useEffect } from "react";
+import { useMotorState, useMotor, Entry, type ParsedEntry } from "@/hooks/use-motor-state";
 import { VoiceButton } from "./voice-button";
 import { cn } from "@/lib/utils";
 import {
@@ -13,6 +13,8 @@ import {
   Radio,
   Wrench,
   ChevronDown,
+  Check,
+  X,
 } from "lucide-react";
 
 /**
@@ -38,6 +40,7 @@ export function OperationsPhase() {
   const dayLog = useMotorState('dayLog');
   const isListening = useMotorState('isListening');
   const voiceSupported = useMotorState('voiceSupported');
+  const editingIndex = useMotorState('editingIndex');
   const motor = useMotor();
 
   // UI-only state (not business logic)
@@ -45,6 +48,10 @@ export function OperationsPhase() {
   const [selectedType, setSelectedType] = useState<string>("notat");
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const [editText, setEditText] = useState("");
+  const [pendingReview, setPendingReview] = useState<{ text: string; type: string; parsed: ParsedEntry } | null>(null);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [customTime, setCustomTime] = useState("");
 
   // Get entries from motor (READ-ONLY)
   const entries = dayLog?.entries || [];
@@ -52,10 +59,42 @@ export function OperationsPhase() {
   // Format time helper
   const formatTime = (time: string) => time || "?";
 
-  // Handle submit entry via motor
+  // Handle submit: parse first, show mini-review if structured
   const handleSubmitEntry = () => {
     if (!inputText.trim()) return;
-    motor?.submitEntry(inputText.trim(), selectedType);
+    const text = inputText.trim();
+
+    // Try structured parse
+    const parsed = motor?.parseEntry(text);
+    if (parsed) {
+      // Structured data detected — show mini-review
+      setPendingReview({ text, type: selectedType, parsed });
+      return;
+    }
+
+    // No structure — raw submit
+    motor?.submitEntry(text, selectedType);
+    setInputText("");
+  };
+
+  // Confirm structured entry from mini-review
+  const handleConfirmReview = () => {
+    if (!pendingReview) return;
+    motor?.confirmStructuredEntry(pendingReview.text, pendingReview.type, pendingReview.parsed);
+    setPendingReview(null);
+    setInputText("");
+  };
+
+  // Cancel mini-review (keep text in input)
+  const handleCancelReview = () => {
+    setPendingReview(null);
+  };
+
+  // Skip review and submit as raw entry
+  const handleSubmitRaw = () => {
+    if (!pendingReview) return;
+    motor?.submitEntry(pendingReview.text, pendingReview.type);
+    setPendingReview(null);
     setInputText("");
   };
 
@@ -65,12 +104,6 @@ export function OperationsPhase() {
     setIsEnding(true);
     motor?.endDay();
   };
-
-  // Count drafts (entries without confirmation where applicable)
-  const draftCount = entries.filter(e =>
-    (e.type === "hendelse" && !e.ruhDecision) ||
-    (e.type === "vaktlogg" && !e.vaktloggConfirmed && !e.vaktloggDiscarded)
-  ).length;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -83,26 +116,70 @@ export function OperationsPhase() {
             </div>
             <div>
               <p className="text-sm font-medium text-foreground">
-                Drift aktiv
+                Dagslogg
               </p>
               <p className="text-xs text-muted-foreground">
-                Startet {formatTime(dayLog?.startTime || "")}
+                {dayLog?.startTime ? `Startet ${formatTime(dayLog.startTime)}` : "Starttid ikke satt"}
               </p>
             </div>
           </div>
-          {draftCount > 0 && (
-            <div className="flex items-center gap-2 rounded-full bg-accent/20 px-3 py-1">
-              <AlertCircle className="h-4 w-4 text-accent" />
-              <span className="text-sm font-medium text-accent">
-                {draftCount} venter
-              </span>
-            </div>
-          )}
         </div>
       </header>
 
       {/* Main content */}
       <main className="flex flex-1 flex-col">
+        {/* Start time prompt — shown until user confirms */}
+        {dayLog?.startTimeSource === "pending" && (
+          <div className="mx-4 mt-4 rounded-xl border border-primary/30 bg-primary/5 p-4">
+            <p className="text-sm font-medium text-foreground mb-2">Når startet du?</p>
+            {!showTimePicker ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => motor?.confirmStartTime()}
+                  type="button"
+                  className="flex-1 rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-all active:scale-[0.98]"
+                >
+                  Nå
+                </button>
+                <button
+                  onClick={() => setShowTimePicker(true)}
+                  type="button"
+                  className="rounded-lg bg-secondary px-4 py-2.5 text-sm font-medium text-secondary-foreground transition-all active:scale-[0.98]"
+                >
+                  Annen tid...
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  type="time"
+                  value={customTime}
+                  onChange={(e) => setCustomTime(e.target.value)}
+                  autoFocus
+                  className="flex-1 rounded-lg border border-border bg-card px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <button
+                  onClick={() => {
+                    motor?.confirmStartTime(customTime || undefined);
+                    setShowTimePicker(false);
+                  }}
+                  type="button"
+                  className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all active:scale-[0.98]"
+                >
+                  OK
+                </button>
+                <button
+                  onClick={() => setShowTimePicker(false)}
+                  type="button"
+                  className="rounded-lg bg-secondary px-3 py-2.5 text-sm text-muted-foreground transition-all active:scale-[0.98]"
+                >
+                  Avbryt
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Voice button area */}
         <div className="flex flex-col items-center gap-4 py-8">
           <VoiceButton
@@ -111,6 +188,7 @@ export function OperationsPhase() {
             label={isListening ? "Lytter..." : "Loggfør"}
             size="lg"
             disabled={!voiceSupported}
+            className="bg-green-600 hover:bg-green-700"
           />
           <p className="text-sm text-muted-foreground">
             Trykk for å logge hendelse, notat, eller ordre
@@ -172,6 +250,62 @@ export function OperationsPhase() {
           </div>
         </div>
 
+        {/* Mini-review card (structured entry verification) */}
+        {pendingReview && (
+          <div className="px-4 mb-4">
+            <div className="rounded-xl border-2 border-primary bg-primary/5 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Wrench className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium text-primary">Bekreft ordrelinje</span>
+              </div>
+              <div className="space-y-1.5 mb-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Ordre</span>
+                  <span className="font-mono font-medium">{pendingReview.parsed.ordre}</span>
+                </div>
+                {pendingReview.parsed.fra && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Tid</span>
+                    <span className="font-medium">
+                      {pendingReview.parsed.fra}{pendingReview.parsed.til ? ` – ${pendingReview.parsed.til}` : ""}
+                    </span>
+                  </div>
+                )}
+                {pendingReview.parsed.ressurser.length > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Ressurser</span>
+                    <span className="font-medium">{pendingReview.parsed.ressurser.join(", ")}</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleConfirmReview}
+                  type="button"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-all active:scale-[0.98]"
+                >
+                  <Check className="h-4 w-4" />
+                  Bekreft
+                </button>
+                <button
+                  onClick={handleSubmitRaw}
+                  type="button"
+                  className="rounded-lg bg-secondary px-3 py-2.5 text-sm font-medium text-secondary-foreground transition-all active:scale-[0.98]"
+                >
+                  Bare logg
+                </button>
+                <button
+                  onClick={handleCancelReview}
+                  type="button"
+                  className="rounded-lg bg-secondary px-3 py-2.5 text-sm text-muted-foreground transition-all active:scale-[0.98]"
+                >
+                  Avbryt
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Log entries from motor */}
         <div className="flex-1 px-4 pb-24">
           {entries.length === 0 ? (
@@ -186,18 +320,35 @@ export function OperationsPhase() {
             </div>
           ) : (
             <div className="space-y-3">
-              {[...entries].reverse().map((entry, index) => {
+              {[...entries].reverse().map((entry, reverseIdx) => {
+                const realIndex = entries.length - 1 - reverseIdx;
                 const typeInfo = LOG_TYPE_INFO[entry.type] || LOG_TYPE_INFO.notat;
                 const Icon = typeInfo.icon;
-                const isConfirmed = entry.type === "vaktlogg" ? entry.vaktloggConfirmed :
-                                   entry.type === "hendelse" ? !!entry.ruhDecision : true;
+
+                // An entry is "locked" (decided) if it has a confirmation/decision flag
+                const isLocked = entry.type === "vaktlogg"
+                  ? (entry.vaktloggConfirmed || entry.vaktloggDiscarded)
+                  : entry.type === "hendelse"
+                    ? !!entry.ruhDecision
+                    : (entry.converted || entry.keptAsNote);
+
+                const isEditing = editingIndex === realIndex;
 
                 return (
                   <div
-                    key={index}
+                    key={reverseIdx}
+                    onClick={() => {
+                      if (!isEditing && !isLocked) {
+                        setEditText(entry.text);
+                        motor?.openEdit(realIndex);
+                      }
+                    }}
                     className={cn(
                       "rounded-xl border p-4 transition-all",
-                      isConfirmed ? "border-border bg-card" : "border-accent/50 bg-accent/5"
+                      isLocked
+                        ? "border-border bg-muted/30 opacity-70"
+                        : "border-border bg-card cursor-pointer active:scale-[0.99]",
+                      isEditing && "border-primary bg-primary/5"
                     )}
                   >
                     <div className="flex items-start gap-3">
@@ -209,20 +360,61 @@ export function OperationsPhase() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-muted-foreground">
+                          <span className={cn(
+                            "text-xs font-medium",
+                            isLocked ? "text-muted-foreground/60" : "text-muted-foreground"
+                          )}>
                             {typeInfo.label}
+                            {isLocked && (
+                              <span className="ml-1.5 text-xs text-muted-foreground/50">
+                                {entry.vaktloggConfirmed ? "Bekreftet" :
+                                 entry.vaktloggDiscarded ? "Forkastet" :
+                                 entry.ruhDecision === "yes" ? "RUH opprettet" :
+                                 entry.ruhDecision === "no" ? "Ikke RUH" :
+                                 entry.converted ? "Konvertert" :
+                                 entry.keptAsNote ? "Beholdt" : ""}
+                              </span>
+                            )}
                           </span>
                           <span className="text-xs text-muted-foreground">
                             {entry.time}
                           </span>
                         </div>
-                        <p className="mt-1 text-sm text-foreground break-words">
-                          {entry.text}
-                        </p>
-                        {!isConfirmed && (
-                          <span className="inline-block mt-2 text-xs text-accent font-medium">
-                            Venter på bekreftelse
-                          </span>
+                        {isEditing ? (
+                          <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                            <textarea
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              autoFocus
+                              rows={2}
+                              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                type="button"
+                                onClick={() => motor?.saveEdit(realIndex, editText)}
+                                className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                              >
+                                <Check className="h-3 w-3" />
+                                Lagre
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => motor?.cancelEdit()}
+                                className="flex items-center gap-1 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground"
+                              >
+                                <X className="h-3 w-3" />
+                                Avbryt
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className={cn(
+                            "mt-1 text-sm break-words",
+                            isLocked ? "text-muted-foreground" : "text-foreground"
+                          )}>
+                            {entry.text}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -242,7 +434,7 @@ export function OperationsPhase() {
           type="button"
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-4 font-medium text-secondary-foreground transition-all active:scale-[0.98] disabled:opacity-50"
         >
-          {isEnding ? "Avslutter..." : "Avslutt dagen"}
+          {isEnding ? "Avslutter..." : "Avslutt dag"}
         </button>
       </div>
     </div>

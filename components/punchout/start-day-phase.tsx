@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useMotorState, useMotor, Schema, UxState, DayLog } from "@/hooks/use-motor-state";
 import { VoiceButton } from "./voice-button";
 import { cn } from "@/lib/utils";
-import { Check, ChevronRight, ExternalLink, FileText, SkipForward, X, Languages } from "lucide-react";
+import { Check, ChevronRight, ExternalLink, FileText, X, Languages } from "lucide-react";
 
 // UI text translations (simple NO/EN toggle, UI-only)
 const UI_TEXT = {
@@ -112,6 +112,17 @@ export function StartDayPhase() {
   const [startUIState, setStartUIState] = useState<'idle' | 'listening' | 'review'>('idle');
   const [voiceTranscript, setVoiceTranscript] = useState<string | null>(null);
   const [isContinuing, setIsContinuing] = useState(false);
+  const [showForceStart, setShowForceStart] = useState(false);
+
+  // Listen for voice transcript from motor
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent<string>).detail;
+      if (text) setVoiceTranscript(text);
+    };
+    window.addEventListener('voice-transcript', handler);
+    return () => window.removeEventListener('voice-transcript', handler);
+  }, []);
 
   const greeting = useMemo(() => getTimeBasedGreeting(lang), [lang]);
 
@@ -119,12 +130,18 @@ export function StartDayPhase() {
   const isNotStarted = appState === 'NOT_STARTED';
   const isPreDay = appState === 'ACTIVE' && dayLog?.phase === 'pre';
 
-  // Auto-transition from listening to review when voice stops
+  // Auto-transition when voice stops
   useEffect(() => {
     if (startUIState === 'listening' && !isListening) {
-      setStartUIState('review');
+      if (appState === 'ACTIVE') {
+        // Voice result triggered startDay — show pre-day review
+        setStartUIState('review');
+      } else {
+        // No speech captured or recognition failed — return to idle
+        setStartUIState('idle');
+      }
     }
-  }, [isListening, startUIState]);
+  }, [isListening, startUIState, appState]);
 
   // Check if we're editing a schema (overlay state)
   const isEditingSchema = uxState?.activeOverlay === 'schema_edit' && uxState?.schemaId;
@@ -143,20 +160,39 @@ export function StartDayPhase() {
     return "anbefalt";
   };
 
-  // Handle start day
-  const handleStartDay = () => {
-    motor?.startDay();
-  };
+  // Required schemas that are not yet confirmed — blocks continue
+  const requiredUnconfirmed = useMemo(() => {
+    return preDaySchemas.filter(
+      s => motor?.isSchemaRequired(s.type) && s.status !== "confirmed"
+    );
+  }, [preDaySchemas, motor]);
+  const hasRequiredBlocking = requiredUnconfirmed.length > 0;
 
-  // Handle continue to drift (NEVER blocks)
+  // Force-start escape: show after 2 minutes of being blocked
+  useEffect(() => {
+    if (!hasRequiredBlocking) {
+      setShowForceStart(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowForceStart(true), 120_000);
+    return () => clearTimeout(timer);
+  }, [hasRequiredBlocking]);
+
+  // Handle continue to drift (blocks if required schemas missing)
   const handleContinue = () => {
     if (isContinuing) return;
+    if (hasRequiredBlocking) return; // Motor will also block
     setIsContinuing(true);
     motor?.continueFromPreDay();
   };
 
-  // Handle skip schema
-  const handleSkipSchema = (schemaId: string) => {
+  // Handle defer schema (Utsett — shows up at end-of-day)
+  const handleDeferSchema = (schemaId: string) => {
+    motor?.deferPreDaySchema(schemaId);
+  };
+
+  // Handle discard schema (Ikke relevant)
+  const handleDiscardSchema = (schemaId: string) => {
     motor?.skipPreDaySchema(schemaId);
   };
 
@@ -199,12 +235,16 @@ export function StartDayPhase() {
             <VoiceButton
               isListening={false}
               onClick={() => {
-                setStartUIState('listening');
-                motor?.toggleVoice();
+                if (voiceSupported) {
+                  setStartUIState('listening');
+                  motor?.toggleVoice();
+                } else {
+                  // No voice support — start day directly
+                  motor?.startDay();
+                }
               }}
               label={t.start_button}
               size="xl"
-              disabled={!voiceSupported}
             />
 
             <p className="max-w-xs text-center text-sm text-muted-foreground">
@@ -298,6 +338,25 @@ export function StartDayPhase() {
             </p>
           </div>
 
+          {/* Voice transcript summary */}
+          {voiceTranscript && (
+            <div className="mb-4 rounded-xl border border-border bg-card p-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                Tale mottatt
+              </p>
+              <p className="text-sm text-foreground italic">
+                &ldquo;{voiceTranscript}&rdquo;
+              </p>
+            </div>
+          )}
+          {!voiceTranscript && startUIState === 'review' && (
+            <div className="mb-4 rounded-xl border border-border bg-muted/30 p-4">
+              <p className="text-sm text-muted-foreground">
+                Ingen tale fanget opp
+              </p>
+            </div>
+          )}
+
           {/* Pre-day schemas from motor */}
           {preDaySchemas.length > 0 && (
             <div className="mb-4 space-y-3">
@@ -307,7 +366,14 @@ export function StartDayPhase() {
               {preDaySchemas.map((schema) => {
                 const status = getSchemaStatus(schema);
                 const isCompleted = schema.status === "confirmed";
-                const isSkipped = schema.status === "skipped";
+                const isSkipped = schema.status === "skipped" || schema.status === "discarded";
+                const isDeferred = (schema.status as string) === "deferred";
+                const isHandled = isCompleted || isSkipped || isDeferred;
+
+                // Get grovfilled field values for display
+                const fieldEntries = schema.fields ? Object.entries(schema.fields).filter(
+                  ([, v]) => v !== null && v !== undefined && v !== ""
+                ) : [];
 
                 return (
                   <div
@@ -316,7 +382,8 @@ export function StartDayPhase() {
                       "rounded-xl border p-4 transition-all",
                       isCompleted && "border-success/50 bg-success/10",
                       isSkipped && "border-muted bg-muted/30 opacity-60",
-                      !isCompleted && !isSkipped && "border-border bg-card"
+                      isDeferred && "border-accent/30 bg-accent/5 opacity-80",
+                      !isHandled && "border-border bg-card"
                     )}
                   >
                     <div className="flex items-center justify-between">
@@ -329,7 +396,8 @@ export function StartDayPhase() {
                           <p className={cn(
                             "font-medium",
                             isCompleted && "text-success",
-                            isSkipped && "text-muted-foreground line-through"
+                            isSkipped && "text-muted-foreground line-through",
+                            isDeferred && "text-muted-foreground"
                           )}>
                             {getSchemaLabel(schema.type)}
                           </p>
@@ -339,6 +407,11 @@ export function StartDayPhase() {
                           )}>
                             {status === "påkrevd" ? t.required : t.recommended}
                           </span>
+                          {status === "påkrevd" && !isCompleted && !isSkipped && !isDeferred && (
+                            <span className="block text-xs text-destructive/80 mt-0.5">
+                              Må bekreftes før drift
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -347,28 +420,50 @@ export function StartDayPhase() {
                         {isCompleted ? (
                           <Check className="h-5 w-5 text-success" />
                         ) : isSkipped ? (
-                          <span className="text-xs text-muted-foreground">{t.skipped}</span>
+                          <span className="text-xs text-muted-foreground">Ikke relevant</span>
+                        ) : isDeferred ? (
+                          <span className="text-xs text-accent">Utsatt</span>
                         ) : (
-                          <>
-                            <button
-                              onClick={() => handleOpenSchema(schema.id)}
-                              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-                            >
-                              {t.fill_in}
-                            </button>
-                            {status !== "påkrevd" && (
-                              <button
-                                onClick={() => handleSkipSchema(schema.id)}
-                                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
-                                title={t.skipped}
-                              >
-                                <SkipForward className="h-4 w-4" />
-                              </button>
-                            )}
-                          </>
+                          <button
+                            onClick={() => handleOpenSchema(schema.id)}
+                            className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
+                          >
+                            {t.fill_in}
+                          </button>
                         )}
                       </div>
                     </div>
+
+                    {/* Show grovfilled field values inline */}
+                    {!isSkipped && fieldEntries.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                        {fieldEntries.slice(0, 4).map(([key, val]) => (
+                          <span key={key}>
+                            {SCHEMA_LABELS[schema.type]?.fields[key] || key}: <span className="text-foreground">{String(val)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Utsett / Ikke relevant buttons for unhandled, non-required schemas */}
+                    {!isHandled && status !== "påkrevd" && (
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={() => handleDeferSchema(schema.id)}
+                          type="button"
+                          className="rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-all hover:bg-accent/20"
+                        >
+                          Utsett
+                        </button>
+                        <button
+                          onClick={() => handleDiscardSchema(schema.id)}
+                          type="button"
+                          className="rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:bg-muted/80"
+                        >
+                          Ikke relevant
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -404,25 +499,56 @@ export function StartDayPhase() {
             ))}
           </div>
 
-          {/* Continue button - ALWAYS visible, NEVER blocking */}
-          <button
-            onClick={handleContinue}
-            disabled={isContinuing}
-            type="button"
-            className={cn(
-              "flex w-full items-center justify-center gap-2 rounded-xl py-5 text-lg font-semibold transition-all",
-              "bg-primary text-primary-foreground",
-              "active:scale-[0.98] disabled:opacity-50"
-            )}
-          >
-            <Check className="h-6 w-6" />
-            {isContinuing ? "Starter drift..." : t.go_to_operations}
-            <ChevronRight className="h-5 w-5" />
-          </button>
-
-          <p className="mt-3 text-center text-xs text-muted-foreground">
-            {t.can_return}
-          </p>
+          {/* Continue button - visible when all schemas are handled */}
+          {(() => {
+            const allHandled = preDaySchemas.every(s =>
+              s.status === "confirmed" || s.status === "skipped" || s.status === "discarded" || (s.status as string) === "deferred"
+            );
+            return allHandled ? (
+              <>
+                <button
+                  onClick={handleContinue}
+                  disabled={isContinuing || hasRequiredBlocking}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-center gap-2 rounded-xl py-5 text-lg font-semibold transition-all",
+                    hasRequiredBlocking
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-primary text-primary-foreground",
+                    "active:scale-[0.98] disabled:opacity-50"
+                  )}
+                >
+                  {hasRequiredBlocking ? (
+                    <>{requiredUnconfirmed.length} påkrevd skjema gjenstår</>
+                  ) : (
+                    <>
+                      <Check className="h-6 w-6" />
+                      {isContinuing ? "Starter drift..." : t.go_to_operations}
+                      <ChevronRight className="h-5 w-5" />
+                    </>
+                  )}
+                </button>
+                {hasRequiredBlocking && showForceStart && (
+                  <button
+                    onClick={() => motor?.forceStartDay()}
+                    type="button"
+                    className="mt-2 flex w-full items-center justify-center rounded-xl border border-destructive/30 py-3 text-sm text-destructive transition-all active:scale-[0.98]"
+                  >
+                    Start uten påkrevde skjema (krever behandling i håndrens)
+                  </button>
+                )}
+                {!hasRequiredBlocking && (
+                  <p className="mt-3 text-center text-xs text-muted-foreground">
+                    {t.can_return}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="mt-3 text-center text-sm text-muted-foreground">
+                Behandle alle skjema for å gå videre til drift
+              </p>
+            );
+          })()}
         </div>
       </div>
     );

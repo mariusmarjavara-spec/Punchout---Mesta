@@ -68,7 +68,12 @@ var ADMIN_CONFIG = {
   ],
 
   // Main order number (hovedordre) - used for main timesheet
-  hovedordre: "HOVED"
+  hovedordre: "HOVED",
+
+  // Export configuration (edge → customer endpoint)
+  userId: null,              // string — identifies the worker, default "anonymous"
+  exportEndpoint: null,      // URL — null = export disabled
+  exportHmacSecret: null     // string — null = no HMAC signature
 };
 
 // --- State ---
@@ -98,6 +103,9 @@ var currentNoteDecisionIndex = 0;
 var pendingFriksjonDecisions = [];    // Friksjonsmålinger awaiting end-of-day confirm
 var currentFriksjonDecisionIndex = 0;
 
+// Håndrens state (React mode)
+var readyToLock = false;  // true when all items resolved, user must explicitly lock
+
 // ============================================================
 // UX STATE - persisted UI position for refresh resilience
 // ============================================================
@@ -105,16 +113,10 @@ var STORAGE_KEY_UX_STATE = "yournal_ux_state";
 
 var uxState = {
   activeOverlay: null,
-  // "schema_edit" | "schema_decision" | "draft_edit" | "draft_decision" |
-  // "time_entry" | "main_time_entry" | "friksjon_decision" | "note_decision" | null
+  // "schema_edit" | "draft_edit" | "time_entry" | "main_time_entry" | "external_instruction" | null
 
   schemaId: null,
-  draftOrdre: null,
-
-  decisionPhase: null,
-  // "main_time" | "drafts" | "schemas" | "friksjon" | "notes"
-
-  decisionIndex: 0
+  draftOrdre: null
 };
 
 function saveUxState() {
@@ -134,8 +136,6 @@ function loadUxState() {
       uxState.activeOverlay = parsed.activeOverlay || null;
       uxState.schemaId = parsed.schemaId || null;
       uxState.draftOrdre = parsed.draftOrdre || null;
-      uxState.decisionPhase = parsed.decisionPhase || null;
-      uxState.decisionIndex = parsed.decisionIndex || 0;
     }
   } catch (e) {
     console.error("Failed to load uxState:", e);
@@ -147,8 +147,6 @@ function clearUxState() {
   uxState.activeOverlay = null;
   uxState.schemaId = null;
   uxState.draftOrdre = null;
-  uxState.decisionPhase = null;
-  uxState.decisionIndex = 0;
   try {
     localStorage.removeItem(STORAGE_KEY_UX_STATE);
   } catch (e) {
@@ -347,7 +345,13 @@ function getSnapshot() {
     storageError: storageError ? JSON.parse(JSON.stringify(storageError)) : null,
     isStaleDay: isStaleDay(),
     isListening: isListening,
-    voiceSupported: !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+    voiceSupported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+    editingIndex: editingIndex,
+    outboxStatus: getOutboxStatus(),
+    exportEnabled: !!ADMIN_CONFIG.exportEndpoint,
+    readyToLock: readyToLock,
+    unresolvedCount: getUnresolvedCount(),
+    exportStatus: getExportStatus()
   };
 }
 
@@ -382,6 +386,7 @@ window.Motor = {
 
   // Voice/Entry
   submitEntry: submitEntry,
+  confirmStartTime: confirmStartTime,
 
   // Schema operations
   openSchemaEdit: openSchemaEdit,
@@ -401,17 +406,27 @@ window.Motor = {
   confirmMainTimeEntry: confirmMainTimeEntry,
   discardMainTimeEntry: discardMainTimeEntry,
 
-  // Decision flow
+  // Decision flow (legacy — vanilla mode)
   draftDecision: draftDecision,
   schemaDecision: schemaDecision,
   friksjonDecision: friksjonDecision,
   noteDecision: noteDecision,
 
+  // Structured entry (verify at moment of input)
+  parseEntry: parseEntry,
+  confirmStructuredEntry: confirmStructuredEntry,
+
+  // Håndrens (React mode — flat verification)
+  getUnresolvedItems: getUnresolvedItems,
+  resolveItem: resolveItem,
+
   // Pre-day
   showPreDayOverlay: showPreDayOverlay,
   hidePreDayOverlay: hidePreDayOverlay,
   continueFromPreDay: continueFromPreDay,
+  forceStartDay: forceStartDay,
   skipPreDaySchema: skipPreDaySchema,
+  deferPreDaySchema: deferPreDaySchema,
   isSchemaRequired: isSchemaRequired,
 
   // External systems (DELEGATED - Punchout only opens, never writes)
@@ -430,8 +445,19 @@ window.Motor = {
   resetCurrentDayOnly: resetCurrentDayOnly,
   tryIgnoreError: tryIgnoreError,
 
+  // Entry editing (React mode)
+  openEdit: openEdit,
+  saveEdit: saveEdit,
+  cancelEdit: cancelEdit,
+
   // Voice
-  toggleVoice: toggleVoice
+  toggleVoice: toggleVoice,
+
+  // Export
+  syncExports: syncExports,
+
+  // Report
+  buildHumanReadableReport: buildHumanReadableReport
 };
 
 // --- Init ---
@@ -446,6 +472,7 @@ function init() {
     emitStateChange('appState');
     emitStateChange('dayLog');
     emitStateChange('uxState');
+    initExportSync();
     return;
   }
 
@@ -467,6 +494,8 @@ function init() {
 
   // Restore overlay state if needed (e.g., after refresh during ending phase)
   restoreOverlayState();
+
+  initExportSync();
 }
 
 // --- Stale Day Detection ---
@@ -536,20 +565,23 @@ function restoreOverlayState() {
     return;
   }
 
-  // PRIORITY 2: Check for unconfirmed hendelser (should show RUH question)
-  var unconfirmedHendelse = findUnconfirmedHendelse();
-  if (unconfirmedHendelse !== null) {
-    pendingRuhQuestion = { entryIndex: unconfirmedHendelse };
-    showRuhQuestionOverlay();
-    return;
-  }
+  // PRIORITY 2 (vanilla only): Check for unconfirmed hendelser (should show RUH question)
+  // In React mode, inline blocking is removed — decisions are deferred to end-of-day.
+  if (!REACT_MODE) {
+    var unconfirmedHendelse = findUnconfirmedHendelse();
+    if (unconfirmedHendelse !== null) {
+      pendingRuhQuestion = { entryIndex: unconfirmedHendelse };
+      showRuhQuestionOverlay();
+      return;
+    }
 
-  // PRIORITY 3: Check for unconfirmed vaktlogg (should show vaktlogg confirm)
-  var unconfirmedVaktlogg = findUnconfirmedVaktlogg();
-  if (unconfirmedVaktlogg !== null) {
-    pendingImmediateConfirm = { type: "vaktlogg", entryIndex: unconfirmedVaktlogg };
-    showVaktloggConfirmOverlay();
-    return;
+    // PRIORITY 3 (vanilla only): Check for unconfirmed vaktlogg
+    var unconfirmedVaktlogg = findUnconfirmedVaktlogg();
+    if (unconfirmedVaktlogg !== null) {
+      pendingImmediateConfirm = { type: "vaktlogg", entryIndex: unconfirmedVaktlogg };
+      showVaktloggConfirmOverlay();
+      return;
+    }
   }
 
   // PRIORITY 4: If in pre-day phase, show pre-day overlay
@@ -558,15 +590,14 @@ function restoreOverlayState() {
     return;
   }
 
-  // PRIORITY 5: If in ending phase without uxState, restart decision flow
-  if (dayLog.phase === "ending" && !dayLog.mainTimeHandled) {
-    openMainTimeEntryOverlay();
-    return;
-  }
-
-  if (dayLog.phase === "ending" && dayLog.mainTimeHandled) {
-    // Main time done, but no uxState - restart from drafts
-    startAllDecisions();
+  // PRIORITY 5: If in ending phase, restart decision flow (vanilla only)
+  // In React mode, Håndrens reads getUnresolvedItems() — no tunnel
+  if (dayLog.phase === "ending") {
+    if (REACT_MODE) {
+      readyToLock = (getUnresolvedCount() === 0);
+    } else {
+      startAllDecisions();
+    }
     return;
   }
 }
@@ -592,9 +623,9 @@ function restoreFromUxState() {
 
     case "time_entry":
       if (uxState.draftOrdre) {
-        // Restore decision arrays first
-        rebuildDecisionArrays();
-        currentDraftDecisionIndex = uxState.decisionIndex || 0;
+        if (!REACT_MODE) {
+          rebuildDecisionArrays();
+        }
         openTimeEntryOverlay(uxState.draftOrdre);
       } else {
         clearUxState();
@@ -605,28 +636,45 @@ function restoreFromUxState() {
       openMainTimeEntryOverlay();
       break;
 
+    // Legacy tunnel overlays (vanilla mode only)
     case "draft_decision":
-      rebuildDecisionArrays();
-      currentDraftDecisionIndex = uxState.decisionIndex || 0;
-      showDraftDecisionOverlay();
+      if (!REACT_MODE) {
+        rebuildDecisionArrays();
+        currentDraftDecisionIndex = uxState.decisionIndex || 0;
+        showDraftDecisionOverlay();
+      } else {
+        clearUxState();
+      }
       break;
 
     case "schema_decision":
-      rebuildDecisionArrays();
-      currentSchemaDecisionIndex = uxState.decisionIndex || 0;
-      showSchemaDecisionOverlay();
+      if (!REACT_MODE) {
+        rebuildDecisionArrays();
+        currentSchemaDecisionIndex = uxState.decisionIndex || 0;
+        showSchemaDecisionOverlay();
+      } else {
+        clearUxState();
+      }
       break;
 
     case "friksjon_decision":
-      rebuildDecisionArrays();
-      currentFriksjonDecisionIndex = uxState.decisionIndex || 0;
-      showFriksjonDecisionOverlay();
+      if (!REACT_MODE) {
+        rebuildDecisionArrays();
+        currentFriksjonDecisionIndex = uxState.decisionIndex || 0;
+        showFriksjonDecisionOverlay();
+      } else {
+        clearUxState();
+      }
       break;
 
     case "note_decision":
-      rebuildDecisionArrays();
-      currentNoteDecisionIndex = uxState.decisionIndex || 0;
-      showNoteDecisionOverlay();
+      if (!REACT_MODE) {
+        rebuildDecisionArrays();
+        currentNoteDecisionIndex = uxState.decisionIndex || 0;
+        showNoteDecisionOverlay();
+      } else {
+        clearUxState();
+      }
       break;
 
     case "external_instruction":
@@ -710,6 +758,17 @@ function loadFromStorage() {
       // Migration: add version if missing
       if (dayLog && !dayLog.version) {
         dayLog.version = 1;
+      }
+      // Migration: startTimeSource for existing data
+      if (dayLog && dayLog.startTime && !dayLog.startTimeSource) {
+        dayLog.startTimeSource = "auto";
+      }
+      // Migration: FINISHED → LOCKED (FINISHED state eliminated)
+      if (appState === "FINISHED") {
+        appState = "LOCKED";
+        dayLog.status = "LOCKED";
+        pushToHistory(JSON.parse(JSON.stringify(dayLog)));
+        saveCurrentDay();
       }
     } catch (e) {
       console.error("Failed to parse current day:", e);
@@ -807,14 +866,18 @@ function setupVoice() {
     var transcript = event.results[0][0].transcript;
 
     if (REACT_MODE) {
-      // If user speaks before day is started, start the day first
-      if (appState === "NOT_STARTED") {
-        startDay();
-      }
+      // Emit transcript for React UI to display
+      window.dispatchEvent(new CustomEvent("voice-transcript", { detail: transcript }));
 
-      // In React mode, submit entry directly and stop listening
-      var guessed = guessEntryType(transcript);
-      submitEntry(transcript, guessed);
+      if (appState === "NOT_STARTED") {
+        // Start phase: pass transcript to startDay for schema detection
+        startDay(transcript);
+      } else {
+        // Active phase: submit as entry
+        var guessed = guessEntryType(transcript);
+        submitEntry(transcript, guessed);
+      }
+      // Stop listening AFTER state changes so React sees everything in one re-render
       isListening = false;
       emitStateChange("isListening");
       return;
@@ -897,13 +960,12 @@ function toggleVoiceReact() {
     isListening = false;
     emitStateChange("isListening");
   } else {
-    isListening = true;
-    emitStateChange("isListening");
     try {
       recognition.start();
-    } catch (e) {
-      isListening = false;
+      isListening = true;
       emitStateChange("isListening");
+    } catch (e) {
+      // start() failed — don't set isListening
     }
   }
 }
@@ -1176,7 +1238,8 @@ function startDay(inputText) {
 
   dayLog = {
     date: now.toISOString().split("T")[0],
-    startTime: formatTime(now),
+    startTime: null,           // Set by user confirmation or auto-fallback, not app-open
+    startTimeSource: "pending", // "pending" | "user" | "auto"
     endTime: null,
     entries: [],
     drafts: {},
@@ -1203,6 +1266,11 @@ function startDay(inputText) {
     dayLog.phase = "pre";
   }
 
+  // In React mode, always go through pre-day phase for suggestions/external links
+  if (REACT_MODE && dayLog.phase !== "pre") {
+    dayLog.phase = "pre";
+  }
+
   appState = "ACTIVE";
   saveCurrentDay();
 
@@ -1221,12 +1289,30 @@ function startDayWithVoice() {
   startDay(text);
 }
 
+/**
+ * confirmStartTime — Explicit start time confirmation by user.
+ * If no timeString provided, uses current time.
+ */
+function confirmStartTime(timeString) {
+  if (!dayLog) return;
+  // Don't overwrite if already user-confirmed
+  if (dayLog.startTime && dayLog.startTimeSource === "user") return;
+
+  if (timeString && /^\d{2}:\d{2}$/.test(timeString)) {
+    dayLog.startTime = timeString;
+  } else {
+    dayLog.startTime = formatTime(new Date());
+  }
+  dayLog.startTimeSource = "user";
+  saveCurrentDay();
+}
+
 function endDay() {
   if (appState !== "ACTIVE") return;
 
-  // Guard: If already in ending phase, resume instead of restart
+  // Guard: If already in ending phase, recalculate readyToLock and return
   if (dayLog.phase === "ending") {
-    restoreOverlayState();
+    readyToLock = (getUnresolvedCount() === 0);
     return;
   }
 
@@ -1235,14 +1321,43 @@ function endDay() {
   dayLog.phase = "ending";
   dayLog.mainTimeHandled = false;
 
-  // Create/get main draft and grovutfyll
+  // Create/get main draft and grovutfyll (without lønnskode pre-fill)
   var mainDraft = getOrCreateMainDraft();
   grovutfyllMainDraft(mainDraft);
 
+  // Auto-keep all notes (canonical flow: notes are never forced through decision)
+  if (dayLog.entries) {
+    for (var i = 0; i < dayLog.entries.length; i++) {
+      var entry = dayLog.entries[i];
+      if (entry.type === "notat" && !entry.converted && !entry.keptAsNote) {
+        entry.keptAsNote = true;
+      }
+    }
+  }
+
+  // Auto-confirm complete non-main drafts (worker verified by saying them)
+  if (dayLog.drafts) {
+    var draftKeys = Object.keys(dayLog.drafts);
+    for (var i = 0; i < draftKeys.length; i++) {
+      var d = dayLog.drafts[draftKeys[i]];
+      if (d.ordre === ADMIN_CONFIG.hovedordre) continue;
+      if (d.status === "draft" && d.arbeidsbeskrivelse.length > 0) {
+        d.status = "confirmed";
+        d.confirmedAt = new Date().toISOString();
+      }
+    }
+  }
+
+  // Check if everything is already resolved (e.g. no schemas, no drafts)
+  readyToLock = (getUnresolvedCount() === 0);
+
   saveCurrentDay();
 
-  // Show main time entry overlay FIRST (tvungen timeføring)
-  openMainTimeEntryOverlay();
+  // In vanilla mode, start old decision tunnel for backwards compat
+  if (!REACT_MODE) {
+    startAllDecisions();
+  }
+  // In React mode, UI reads getUnresolvedItems() and shows Håndrens
 }
 
 function startAllDecisions() {
@@ -1265,15 +1380,24 @@ function startAllDecisions() {
 }
 
 function showNextDecision() {
-  // Order: drafts -> schemas -> friksjon -> notes
-  if (currentDraftDecisionIndex < pendingDraftDecisions.length) {
-    showDraftDecisionOverlay();
-  } else if (currentSchemaDecisionIndex < pendingSchemaDecisions.length) {
+  // Canonical order: schemas → friksjon → main time → drafts
+  // Notes are auto-kept in endDay(), no note decision loop.
+  if (currentSchemaDecisionIndex < pendingSchemaDecisions.length) {
     showSchemaDecisionOverlay();
   } else if (currentFriksjonDecisionIndex < pendingFriksjonDecisions.length) {
     showFriksjonDecisionOverlay();
-  } else if (currentNoteDecisionIndex < pendingNoteDecisions.length) {
-    showNoteDecisionOverlay();
+  } else if (!dayLog.mainTimeHandled) {
+    // Main time entry comes after schema/friksjon decisions
+    var mainDraft = dayLog.drafts[ADMIN_CONFIG.hovedordre];
+    if (mainDraft) {
+      openMainTimeEntryOverlay();
+    } else {
+      dayLog.mainTimeHandled = true;
+      saveCurrentDay();
+      showNextDecision();
+    }
+  } else if (currentDraftDecisionIndex < pendingDraftDecisions.length) {
+    showDraftDecisionOverlay();
   } else {
     proceedToFinished();
   }
@@ -1300,7 +1424,16 @@ function getNotesPendingDecision() {
 }
 
 function lockDay() {
-  if (appState !== "FINISHED") return;
+  // Allow lock from ACTIVE+ending (React Håndrens) or FINISHED (legacy vanilla)
+  if (appState === "ACTIVE" && dayLog && dayLog.phase === "ending") {
+    // React Håndrens path: guard on unresolved items
+    if (getUnresolvedCount() > 0) {
+      console.warn("lockDay blocked: " + getUnresolvedCount() + " unresolved items");
+      return;
+    }
+  } else if (appState !== "FINISHED") {
+    return;
+  }
 
   // Block if main time not handled
   if (!dayLog.mainTimeHandled) {
@@ -1310,7 +1443,19 @@ function lockDay() {
 
   dayLog.status = "LOCKED";
   appState = "LOCKED";
+  readyToLock = false;
+  clearUxState();
   pushToHistory(JSON.parse(JSON.stringify(dayLog)));
+
+  // Export: enqueue immutable packet and trigger sync
+  var exportPacket = buildExportPacket(dayLog);
+  if (exportPacket) {
+    // Store exportId in dayLog for per-day export status tracking
+    dayLog.exportId = exportPacket.exportId;
+    enqueueExport(exportPacket);
+    syncExports();
+  }
+
   saveCurrentDay();
   render();
 }
@@ -1318,6 +1463,7 @@ function lockDay() {
 function startNewDay() {
   dayLog = null;
   appState = "NOT_STARTED";
+  readyToLock = false;
   saveCurrentDay();
   render();
 }
@@ -1326,21 +1472,29 @@ function startNewDay() {
 function submitEntry(entryText, entryType) {
   if (appState !== "ACTIVE") return;
 
-  // Block if waiting for immediate confirmation
-  if (pendingImmediateConfirm) {
-    if (!REACT_MODE) alert("Bekreft vaktloggen f\u00f8r du registrerer noe nytt.");
-    return;
-  }
-  // Block if waiting for RUH question
-  if (pendingRuhQuestion) {
-    if (!REACT_MODE) alert("Svar p\u00e5 RUH-sp\u00f8rsm\u00e5let f\u00f8r du registrerer noe nytt.");
-    return;
+  // In React mode, inline blocking is removed — decisions are deferred to end-of-day.
+  // In vanilla mode, keep blocking for backwards compatibility.
+  if (!REACT_MODE) {
+    if (pendingImmediateConfirm) {
+      alert("Bekreft vaktloggen f\u00f8r du registrerer noe nytt.");
+      return;
+    }
+    if (pendingRuhQuestion) {
+      alert("Svar p\u00e5 RUH-sp\u00f8rsm\u00e5let f\u00f8r du registrerer noe nytt.");
+      return;
+    }
   }
 
   if (dayLog.phase === "pre") {
     // Still in pre-day mode, skip to active
     dayLog.phase = "active";
     saveCurrentDay();
+  }
+
+  // Auto-set start time if still pending (first entry = fallback)
+  if (dayLog.startTime === null) {
+    dayLog.startTime = formatTime(new Date());
+    dayLog.startTimeSource = "auto";
   }
 
   // In React mode, use parameters. In vanilla mode, read from DOM
@@ -1380,29 +1534,66 @@ function submitEntry(entryText, entryType) {
 
   // Check for drift schema triggers based on entry type
   if (type === "hendelse" && ADMIN_CONFIG.ruhTriggerTypes.indexOf("hendelse") !== -1) {
-    // Trigger RUH question
-    pendingRuhQuestion = { entryIndex: entryIndex };
-    if (!REACT_MODE) {
+    if (REACT_MODE) {
+      // React mode: create deferred RUH schema, no blocking
+      var ruhSchema = {
+        id: "ruh_" + Date.now(),
+        type: "ruh",
+        origin: "drift",
+        status: "draft",
+        createdAt: new Date().toISOString(),
+        confirmedAt: null,
+        linkedEntries: [entryIndex],
+        fields: {
+          tidspunkt: dayLog.entries[entryIndex].time,
+          beskrivelse: dayLog.entries[entryIndex].text,
+          sted: null,
+          arsak: null,
+          tiltak: null
+        }
+      };
+      if (!dayLog.schemas) dayLog.schemas = [];
+      dayLog.schemas.push(ruhSchema);
+    } else {
+      // Vanilla mode: keep inline blocking
+      pendingRuhQuestion = { entryIndex: entryIndex };
       input.value = "";
       document.getElementById("entryType").value = "notat";
       setVoiceStatus("");
+      saveCurrentDay();
+      showRuhQuestionOverlay();
+      return;
     }
-    saveCurrentDay();
-    showRuhQuestionOverlay();
-    return;  // Don't render yet, wait for RUH decision
   }
 
   if (type === "vaktlogg" && ADMIN_CONFIG.immediateConfirmTypes.indexOf("vaktlogg") !== -1) {
-    // Trigger immediate vaktlogg confirmation
-    pendingImmediateConfirm = { type: "vaktlogg", entryIndex: entryIndex };
-    if (!REACT_MODE) {
+    if (REACT_MODE) {
+      // React mode: create deferred vaktlogg schema, no blocking
+      var vaktloggDraftSchema = {
+        id: "vaktlogg_" + Date.now(),
+        type: "vaktlogg",
+        origin: "drift",
+        status: "draft",
+        createdAt: new Date().toISOString(),
+        confirmedAt: null,
+        linkedEntries: [entryIndex],
+        fields: {
+          tidspunkt: dayLog.entries[entryIndex].time,
+          innhold: dayLog.entries[entryIndex].text
+        }
+      };
+      if (!dayLog.schemas) dayLog.schemas = [];
+      dayLog.schemas.push(vaktloggDraftSchema);
+    } else {
+      // Vanilla mode: keep inline blocking
+      pendingImmediateConfirm = { type: "vaktlogg", entryIndex: entryIndex };
       input.value = "";
       document.getElementById("entryType").value = "notat";
       setVoiceStatus("");
+      saveCurrentDay();
+      showVaktloggConfirmOverlay();
+      return;
     }
-    saveCurrentDay();
-    showVaktloggConfirmOverlay();
-    return;  // Don't render yet, wait for confirmation
   }
 
   if (type === "friksjon" && ADMIN_CONFIG.endOfDayConfirmTypes.indexOf("friksjonsmaling") !== -1) {
@@ -1420,9 +1611,14 @@ function submitEntry(entryText, entryType) {
 }
 
 function openEdit(index) {
-  if (REACT_MODE) return;
   if (appState !== "ACTIVE" && appState !== "FINISHED") return;
   editingIndex = index;
+
+  if (REACT_MODE) {
+    emitStateChange("editingIndex");
+    return;
+  }
+
   var entry = dayLog.entries[index];
   document.getElementById("editType").value = entry.type;
   document.getElementById("editText").value = entry.text;
@@ -1430,14 +1626,27 @@ function openEdit(index) {
   document.getElementById("editText").focus();
 }
 
-function saveEdit() {
-  if (REACT_MODE) return;
+function saveEdit(index, newText) {
+  if (REACT_MODE) {
+    // React mode: accept parameters directly
+    var i = (index !== undefined) ? index : editingIndex;
+    if (i < 0 || !dayLog.entries[i]) return;
+    var text = (newText || "").trim();
+    if (text) {
+      dayLog.entries[i].text = text;
+      saveCurrentDay();
+    }
+    editingIndex = -1;
+    emitStateChange("editingIndex");
+    return;
+  }
+
   if (editingIndex < 0) return;
   var newType = document.getElementById("editType").value;
-  var newText = document.getElementById("editText").value.trim();
-  if (newText) {
+  var domText = document.getElementById("editText").value.trim();
+  if (domText) {
     dayLog.entries[editingIndex].type = newType;
-    dayLog.entries[editingIndex].text = newText;
+    dayLog.entries[editingIndex].text = domText;
     saveCurrentDay();
   }
   cancelEdit();
@@ -1446,9 +1655,11 @@ function saveEdit() {
 
 function cancelEdit() {
   editingIndex = -1;
-  if (!REACT_MODE) {
-    document.getElementById("editOverlay").classList.add("hidden");
+  if (REACT_MODE) {
+    emitStateChange("editingIndex");
+    return;
   }
+  document.getElementById("editOverlay").classList.add("hidden");
 }
 
 // ============================================================
@@ -1629,6 +1840,21 @@ function skipPreDaySchema(schemaId) {
   if (!REACT_MODE) renderPreDayContent();
 }
 
+function deferPreDaySchema(schemaId) {
+  var schema = findSchemaById(schemaId);
+  if (!schema) return;
+
+  // Block deferral of admin-required schemas
+  if (isSchemaRequired(schema.type)) {
+    if (!REACT_MODE) alert("Dette skjemaet er påkrevd av arbeidsgiver og kan ikke utsettes.");
+    return;
+  }
+
+  schema.status = "deferred";
+  saveCurrentDay();
+  if (!REACT_MODE) renderPreDayContent();
+}
+
 function skipAllPreDay() {
   // Only skip schemas that are NOT admin-required
   for (var i = 0; i < dayLog.schemas.length; i++) {
@@ -1644,11 +1870,38 @@ function skipAllPreDay() {
 }
 
 function continueFromPreDay() {
-  // Block ONLY if admin-required schemas are not confirmed
+  // Block if admin-required schemas are not confirmed
   var requiredMissing = getRequiredSchemasNotConfirmed();
   if (requiredMissing.length > 0) {
-    if (!REACT_MODE) alert("Arbeidsgiver krever at p\u00e5krevde skjema bekreftes f\u00f8r arbeidsdagen kan starte.");
+    if (!REACT_MODE) {
+      alert("Arbeidsgiver krever at p\u00e5krevde skjema bekreftes f\u00f8r arbeidsdagen kan starte.");
+    }
     return;
+  }
+
+  dayLog.phase = "active";
+  saveCurrentDay();
+  hidePreDayOverlay();
+  render();
+}
+
+/**
+ * forceStartDay — Escape hatch for required schema deadlock.
+ * Marks unconfirmed required schemas as "force_skipped" and proceeds.
+ * force_skipped items MUST be resolved in Håndrens — they block lockDay.
+ */
+function forceStartDay() {
+  if (!dayLog) return;
+
+  // Mark all unconfirmed required schemas as force_skipped
+  if (dayLog.schemas) {
+    for (var i = 0; i < dayLog.schemas.length; i++) {
+      var s = dayLog.schemas[i];
+      if (s.origin === "pre_day" && isSchemaRequired(s.type) && s.status !== "confirmed") {
+        s.status = "force_skipped";
+        s.forceSkippedAt = new Date().toISOString();
+      }
+    }
   }
 
   dayLog.phase = "active";
@@ -1966,16 +2219,20 @@ function saveSchemaEdit() {
   if (dayLog.phase === "pre") {
     if (!REACT_MODE) renderPreDayContent();
   } else if (dayLog.phase === "ending") {
-    // Determine which decision flow to continue
-    if (schemaOrigin === "conversion") {
-      afterConversionSchemaEdit();
-    } else if (schemaType === "friksjonsmaling") {
-      showFriksjonDecisionOverlay();
-    } else if (schemaType === "ruh") {
-      // After RUH edit, continue normal flow
-      render();
+    if (REACT_MODE) {
+      // Håndrens: React re-derives from getUnresolvedItems(), no tunnel needed
+      readyToLock = (getUnresolvedCount() === 0);
     } else {
-      showSchemaDecisionOverlay();
+      // Vanilla: continue decision tunnel
+      if (schemaOrigin === "conversion") {
+        afterConversionSchemaEdit();
+      } else if (schemaType === "friksjonsmaling") {
+        showFriksjonDecisionOverlay();
+      } else if (schemaType === "ruh") {
+        render();
+      } else {
+        showSchemaDecisionOverlay();
+      }
     }
   } else {
     render();
@@ -2053,7 +2310,9 @@ function getSchemasPendingDecision() {
   return dayLog.schemas.filter(function (s) {
     // Exclude SJA from end-of-day decisions - it's confirmed only in PRE-DAY
     if (s.type === "sja_preday") return false;
-    return s.status === "draft" || s.status === "skipped";
+    // Exclude friksjonsmaling - has its own decision loop
+    if (s.type === "friksjonsmaling") return false;
+    return s.status === "draft" || s.status === "skipped" || s.status === "deferred";
   });
 }
 
@@ -2133,10 +2392,38 @@ function schemaDecision(action) {
     schema.status = "confirmed";
     schema.confirmedAt = new Date().toISOString();
     console.log("[MOCK SEND] Skjema bekreftet: " + schema.type + " (" + schema.id + ")");
+
+    // Propagate entry flags for linked entries
+    if (schema.linkedEntries && schema.linkedEntries.length > 0) {
+      for (var i = 0; i < schema.linkedEntries.length; i++) {
+        var entry = dayLog.entries[schema.linkedEntries[i]];
+        if (!entry) continue;
+        if (schema.type === "vaktlogg") {
+          entry.vaktloggConfirmed = true;
+        }
+        if (schema.type === "ruh") {
+          entry.ruhDecision = "yes";
+        }
+      }
+    }
   }
 
   if (action === "discard") {
     schema.status = "discarded";
+
+    // Propagate entry flags for linked entries
+    if (schema.linkedEntries && schema.linkedEntries.length > 0) {
+      for (var i = 0; i < schema.linkedEntries.length; i++) {
+        var entry = dayLog.entries[schema.linkedEntries[i]];
+        if (!entry) continue;
+        if (schema.type === "vaktlogg") {
+          entry.vaktloggDiscarded = true;
+        }
+        if (schema.type === "ruh") {
+          entry.ruhDecision = "no";
+        }
+      }
+    }
   }
 
   saveCurrentDay();
@@ -3166,33 +3453,12 @@ function getOrCreateMainDraft() {
 }
 
 function grovutfyllMainDraft(mainDraft) {
-  // Grovutfyll based on startTime/endTime minus locked tillegg hours
-  // This is ONLY a suggestion - user can change everything
+  // Grovutfyll: only deterministic values (fra/til from day start/end)
+  // Lønnskoder are NOT pre-filled — user adds them explicitly.
 
-  var lockedInfo = getLockedHoursFromTillegg();
-
-  // Set from/to based on day start/end
-  mainDraft.fra_tid = dayLog.startTime;
+  // Set from/to based on day start/end (guard null startTime)
+  mainDraft.fra_tid = dayLog.startTime || formatTime(new Date());
   mainDraft.til_tid = dayLog.endTime;
-
-  // Pre-fill one lønnskode line if empty (just a suggestion)
-  if (mainDraft.lonnskoder.length === 0) {
-    var suggestedFra = dayLog.startTime;
-    var suggestedTil = dayLog.endTime;
-
-    // Subtract locked hours by adjusting suggested til time
-    // This is rough - just moves end time earlier by locked hours
-    if (lockedInfo.totalHours > 0) {
-      suggestedTil = subtractHoursFromTime(dayLog.endTime, lockedInfo.totalHours);
-    }
-
-    var defaultKode = ADMIN_CONFIG.lonnskoder.length > 0 ? ADMIN_CONFIG.lonnskoder[0].kode : "ORD";
-    mainDraft.lonnskoder.push({
-      kode: defaultKode,
-      fra: suggestedFra,
-      til: suggestedTil
-    });
-  }
 }
 
 function getLockedHoursFromTillegg() {
@@ -3406,8 +3672,8 @@ function confirmMainTimeEntry() {
   saveCurrentDay();
   hideTimeEntryOverlay();
 
-  // Continue to other decisions
-  startAllDecisions();
+  // Continue to next decision (drafts follow main time)
+  showNextDecision();
 }
 
 /**
@@ -3445,8 +3711,8 @@ function discardMainTimeEntry(reason) {
   saveCurrentDay();
   hideTimeEntryOverlay();
 
-  // Continue to other decisions
-  startAllDecisions();
+  // Continue to next decision (drafts follow main time)
+  showNextDecision();
 }
 
 // ============================================================
@@ -3805,6 +4071,841 @@ function proceedToFinished() {
   clearUxState();  // Clear UI state when decisions complete
   saveCurrentDay();
   render();
+}
+
+// ============================================================
+// STRUCTURED ENTRY — VERIFY AT MOMENT OF INPUT
+// parseEntry() = read-only extraction. No side effects.
+// confirmStructuredEntry() = creates verified entry + confirmed draft.
+// ============================================================
+
+/**
+ * parseEntry — Read-only extraction from text.
+ * Returns orchestration result without saving anything.
+ * UI uses this to show mini-review before confirm.
+ */
+function parseEntry(text) {
+  if (!text || !text.trim()) return null;
+  var orch = orchestrateEntry(text.trim());
+  if (!hasOrchestrationData(orch)) return null;
+  // Only offer structured review if we found an ordre
+  if (!orch.ordre) return null;
+  return {
+    ordre: orch.ordre,
+    fra: orch.tidsrom.fra,
+    til: orch.tidsrom.til,
+    ressurser: orch.ressurser,
+    rawText: orch.rawText
+  };
+}
+
+/**
+ * confirmStructuredEntry — Creates a verified entry + confirmed draft.
+ * Called from UI after user approves mini-review.
+ * The entry is marked verified — it will NEVER appear in Håndrens.
+ *
+ * @param {string} text     — Original entry text
+ * @param {string} type     — Entry type (usually "ordre")
+ * @param {object} parsed   — Result from parseEntry()
+ */
+function confirmStructuredEntry(text, type, parsed) {
+  if (appState !== "ACTIVE") return;
+  if (!parsed || !parsed.ordre) return;
+
+  if (dayLog.phase === "pre") {
+    dayLog.phase = "active";
+  }
+
+  // Auto-set start time if still pending
+  if (dayLog.startTime === null) {
+    dayLog.startTime = formatTime(new Date());
+    dayLog.startTimeSource = "auto";
+  }
+
+  // 1. Create verified entry
+  var entryIndex = dayLog.entries.length;
+  dayLog.entries.push({
+    time: formatTime(new Date()),
+    type: type || "ordre",
+    text: text,
+    verified: true,
+    lockedByUser: true
+  });
+
+  // 2. Create/update draft as CONFIRMED directly (no "draft" state)
+  ensureDrafts();
+  var draft = dayLog.drafts[parsed.ordre];
+  if (!draft) {
+    dayLog.drafts[parsed.ordre] = {
+      ordre: parsed.ordre,
+      dato: dayLog.date,
+      fra_tid: parsed.fra || null,
+      til_tid: parsed.til || null,
+      arbeidsbeskrivelse: [text],
+      ressurser: parsed.ressurser || [],
+      lonnskoder: [],
+      maskintimer: [],
+      arbeidsvarsling: null,
+      entryIndices: [entryIndex],
+      status: "confirmed",
+      confirmedAt: new Date().toISOString()
+    };
+    // Add lønnskode if time range present
+    if (parsed.fra && parsed.til) {
+      dayLog.drafts[parsed.ordre].lonnskoder.push({
+        kode: "ORD",
+        fra: parsed.fra,
+        til: parsed.til
+      });
+    }
+  } else {
+    // Update existing draft
+    if (parsed.til) draft.til_tid = parsed.til;
+    if (parsed.fra && !draft.fra_tid) draft.fra_tid = parsed.fra;
+    if (draft.arbeidsbeskrivelse.indexOf(text) === -1) {
+      draft.arbeidsbeskrivelse.push(text);
+    }
+    if (draft.entryIndices.indexOf(entryIndex) === -1) {
+      draft.entryIndices.push(entryIndex);
+    }
+    for (var i = 0; i < (parsed.ressurser || []).length; i++) {
+      if (draft.ressurser.indexOf(parsed.ressurser[i]) === -1) {
+        draft.ressurser.push(parsed.ressurser[i]);
+      }
+    }
+    // Upgrade to confirmed if still draft
+    if (draft.status === "draft") {
+      draft.status = "confirmed";
+      draft.confirmedAt = new Date().toISOString();
+    }
+  }
+
+  // 3. Check for running schema triggers (same as submitEntry)
+  var runningSchemaKey = detectRunningSchema(text);
+  if (runningSchemaKey) {
+    var newSchema = createSchemaInstance(runningSchemaKey, "running");
+    if (newSchema) {
+      if (newSchema.fields.beskrivelse !== undefined) {
+        newSchema.fields.beskrivelse = text;
+      }
+      newSchema.linkedEntries.push(entryIndex);
+      dayLog.schemas.push(newSchema);
+    }
+  }
+
+  saveCurrentDay();
+}
+
+// ============================================================
+// HÅNDRENS — FLAT VERIFICATION (React mode)
+// Replaces decision tunnel. No sequence, no modals, no index.
+// Returns flat list of items needing resolution.
+// resolveItem() is the single entry point for all actions.
+// ============================================================
+
+var SCHEMA_TYPE_LABELS = {
+  ruh: "RUH",
+  vaktlogg: "Vaktlogg",
+  hendelse: "Hendelse",
+  kjoretoyssjekk: "Kjøretøysjekk",
+  skademelding: "Skademelding",
+  friksjonsmaling: "Friksjonsmåling",
+  uonsket_hendelse: "Uønsket hendelse"
+};
+
+function getUnresolvedItems() {
+  if (!dayLog) return [];
+  var items = [];
+
+  // 1. Schemas pending decision (non-friksjon, non-sja_preday)
+  if (dayLog.schemas) {
+    for (var i = 0; i < dayLog.schemas.length; i++) {
+      var s = dayLog.schemas[i];
+      if (s.type === "sja_preday") continue;
+      if (s.type === "friksjonsmaling") continue;
+      if (s.status === "draft" || s.status === "deferred" || s.status === "force_skipped") {
+        items.push({
+          id: "schema_" + s.id,
+          kind: "schema",
+          label: SCHEMA_TYPE_LABELS[s.type] || s.type,
+          data: { schemaId: s.id, type: s.type, fields: s.fields, linkedEntries: s.linkedEntries || [] }
+        });
+      }
+    }
+  }
+
+  // 2. Friksjon schemas
+  if (dayLog.schemas) {
+    for (var i = 0; i < dayLog.schemas.length; i++) {
+      var s = dayLog.schemas[i];
+      if (s.type === "friksjonsmaling" && s.status === "draft") {
+        items.push({
+          id: "friksjon_" + s.id,
+          kind: "friksjon",
+          label: "Friksjonsmåling",
+          data: { schemaId: s.id, fields: s.fields }
+        });
+      }
+    }
+  }
+
+  // 3. Main time (if not handled)
+  if (!dayLog.mainTimeHandled) {
+    var mainDraft = dayLog.drafts ? dayLog.drafts[ADMIN_CONFIG.hovedordre] : null;
+    if (mainDraft && mainDraft.status === "draft") {
+      items.push({
+        id: "main_time",
+        kind: "main_time",
+        label: "Hovedtimeføring",
+        data: {
+          ordre: mainDraft.ordre,
+          startTime: dayLog.startTime,
+          endTime: dayLog.endTime,
+          lonnskoder: mainDraft.lonnskoder || []
+        }
+      });
+    }
+  }
+
+  // 4. Non-main drafts with status "draft"
+  if (dayLog.drafts) {
+    var keys = Object.keys(dayLog.drafts);
+    for (var i = 0; i < keys.length; i++) {
+      var d = dayLog.drafts[keys[i]];
+      if (d.ordre === ADMIN_CONFIG.hovedordre) continue;
+      if (d.status === "draft") {
+        items.push({
+          id: "draft_" + d.ordre,
+          kind: "draft",
+          label: "Timeark – " + d.ordre,
+          data: { ordre: d.ordre, beskrivelse: d.arbeidsbeskrivelse.join(". ") }
+        });
+      }
+    }
+  }
+
+  return items;
+}
+
+function getUnresolvedCount() {
+  return getUnresolvedItems().length;
+}
+
+/**
+ * resolveItem — Unified handler for Håndrens actions.
+ * Called from React with (id, action, data).
+ *
+ * @param {string} id     — Item id from getUnresolvedItems()
+ * @param {string} action — "confirm" | "discard"
+ * @param {object} data   — Optional extra data (e.g., { reason } for main_time discard)
+ */
+function resolveItem(id, action, data) {
+  if (!dayLog) return;
+
+  if (id === "main_time") {
+    resolveMainTime(action, data);
+  } else if (id.indexOf("schema_") === 0) {
+    var schemaId = id.substring(7);
+    resolveSchemaItem(schemaId, action);
+  } else if (id.indexOf("friksjon_") === 0) {
+    var fSchemaId = id.substring(9);
+    resolveFriksjonItem(fSchemaId, action);
+  } else if (id.indexOf("draft_") === 0) {
+    var ordre = id.substring(6);
+    resolveDraftItem(ordre, action);
+  }
+
+  // Recalculate readyToLock after every resolution
+  readyToLock = (getUnresolvedCount() === 0);
+  saveCurrentDay();
+}
+
+function resolveSchemaItem(schemaId, action) {
+  var schema = findSchemaById(schemaId);
+  if (!schema) return;
+
+  if (action === "confirm") {
+    schema.status = "confirmed";
+    schema.confirmedAt = new Date().toISOString();
+    // Propagate entry flags for linked entries
+    if (schema.linkedEntries && schema.linkedEntries.length > 0) {
+      for (var i = 0; i < schema.linkedEntries.length; i++) {
+        var entry = dayLog.entries[schema.linkedEntries[i]];
+        if (!entry) continue;
+        if (schema.type === "vaktlogg") entry.vaktloggConfirmed = true;
+        if (schema.type === "ruh") entry.ruhDecision = "yes";
+      }
+    }
+  } else if (action === "discard") {
+    schema.status = "discarded";
+    if (schema.linkedEntries && schema.linkedEntries.length > 0) {
+      for (var i = 0; i < schema.linkedEntries.length; i++) {
+        var entry = dayLog.entries[schema.linkedEntries[i]];
+        if (!entry) continue;
+        if (schema.type === "vaktlogg") entry.vaktloggDiscarded = true;
+        if (schema.type === "ruh") entry.ruhDecision = "no";
+      }
+    }
+  }
+}
+
+function resolveFriksjonItem(schemaId, action) {
+  var schema = findSchemaById(schemaId);
+  if (!schema) return;
+
+  if (action === "confirm") {
+    schema.status = "confirmed";
+    schema.confirmedAt = new Date().toISOString();
+  } else if (action === "discard") {
+    schema.status = "discarded";
+  }
+}
+
+function resolveMainTime(action, data) {
+  var draft = dayLog.drafts ? dayLog.drafts[ADMIN_CONFIG.hovedordre] : null;
+  if (!draft) return;
+
+  if (action === "confirm") {
+    if (!draft.lonnskoder || draft.lonnskoder.length === 0) {
+      console.warn("resolveItem main_time: no lønnskoder — cannot confirm");
+      return;
+    }
+    updateDraftTimesFromLonnskoder(draft);
+    draft.status = "confirmed";
+    draft.confirmedAt = new Date().toISOString();
+    dayLog.mainTimeHandled = true;
+  } else if (action === "discard") {
+    var reason = data && data.reason;
+    if (reason !== "no_work_done" && reason !== "logged_elsewhere") {
+      console.error("resolveItem main_time discard: invalid reason", reason);
+      return;
+    }
+    draft.status = "discarded";
+    dayLog.mainTimeDiscarded = true;
+    dayLog.mainTimeDiscardReason = reason;
+    dayLog.mainTimeHandled = true;
+  }
+}
+
+function resolveDraftItem(ordre, action) {
+  var draft = dayLog.drafts ? dayLog.drafts[ordre] : null;
+  if (!draft) return;
+
+  if (action === "confirm") {
+    draft.status = "confirmed";
+    draft.confirmedAt = new Date().toISOString();
+  } else if (action === "discard") {
+    draft.status = "discarded";
+  }
+}
+
+// ============================================================
+// EXPORT — EDGE OUTBOX + JSON FORWARD
+// Immutable packets generated at lockDay(), queued locally,
+// sent via fetch to customer endpoint. Fire-and-forget.
+// Does NOT affect motor determinism — outbox is a side-channel.
+// ============================================================
+
+var STORAGE_KEY_OUTBOX = "punchout_outbox";
+var STORAGE_KEY_DEVICE_ID = "punchout_device_id";
+var syncIntervalId = null;
+
+function getOrCreateDeviceId() {
+  try {
+    var id = localStorage.getItem(STORAGE_KEY_DEVICE_ID);
+    if (id) return id;
+    id = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : "dev_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem(STORAGE_KEY_DEVICE_ID, id);
+    return id;
+  } catch (e) {
+    return "dev_" + Date.now();
+  }
+}
+
+// Pure function — no side effects, no localStorage writes
+function buildExportPacket(log) {
+  if (!ADMIN_CONFIG.userId) {
+    console.warn("Missing userId — export aborted");
+    return null;
+  }
+  var exportId = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : "exp_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+
+  // Sanitize entries: only time, type, text
+  var entries = (log.entries || []).map(function (e) {
+    return { time: e.time, type: e.type, text: e.text };
+  });
+
+  // Only confirmed/discarded schemas, strip internal fields
+  var schemas = (log.schemas || []).filter(function (s) {
+    return s.status === "confirmed" || s.status === "discarded";
+  }).map(function (s) {
+    return {
+      id: s.id,
+      type: s.type,
+      status: s.status,
+      fields: s.fields,
+      createdAt: s.createdAt,
+      confirmedAt: s.confirmedAt || null
+    };
+  });
+
+  // Time entries from confirmed drafts
+  var timeEntries = [];
+  var machineHours = [];
+  if (log.drafts) {
+    var ordreKeys = Object.keys(log.drafts);
+    for (var i = 0; i < ordreKeys.length; i++) {
+      var d = log.drafts[ordreKeys[i]];
+      if (d.status === "confirmed") {
+        timeEntries.push({
+          ordre: d.ordre,
+          dato: d.dato,
+          fra_tid: d.fra_tid || null,
+          til_tid: d.til_tid || null,
+          arbeidsbeskrivelse: d.arbeidsbeskrivelse || [],
+          lonnskoder: d.lonnskoder || [],
+          maskintimer: d.maskintimer || []
+        });
+        // Aggregate machine hours flat
+        if (d.maskintimer) {
+          for (var j = 0; j < d.maskintimer.length; j++) {
+            machineHours.push({
+              ordre: d.ordre,
+              maskintype: d.maskintimer[j].maskintype,
+              timer: d.maskintimer[j].timer
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    exportVersion: "1.0",
+    exportId: exportId,
+    deviceId: getOrCreateDeviceId(),
+    userId: ADMIN_CONFIG.userId,
+    dayId: log.date,
+    createdAt: new Date().toISOString(),
+    payload: {
+      startTime: log.startTime,
+      endTime: log.endTime,
+      entries: entries,
+      schemas: schemas,
+      timeEntries: timeEntries,
+      machineHours: machineHours
+    }
+  };
+}
+
+// --- Outbox persistence ---
+
+function loadOutbox() {
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY_OUTBOX);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error("Failed to load outbox:", e);
+    return [];
+  }
+}
+
+function saveOutbox(outbox) {
+  try {
+    localStorage.setItem(STORAGE_KEY_OUTBOX, JSON.stringify(outbox));
+  } catch (e) {
+    console.error("Failed to save outbox:", e);
+  }
+}
+
+function enqueueExport(packet) {
+  if (!packet) return;
+  if (!ADMIN_CONFIG.exportEndpoint) {
+    console.warn("Export disabled — no endpoint configured");
+    return;
+  }
+  var outbox = loadOutbox();
+  if (outbox.length > 30) {
+    console.warn("Outbox backlog growing: " + outbox.length + " entries");
+  }
+  // Dedup: reject if exportId already exists
+  for (var i = 0; i < outbox.length; i++) {
+    if (outbox[i].exportId === packet.exportId) return;
+  }
+  outbox.push({
+    exportId: packet.exportId,
+    status: "pending",
+    retries: 0,
+    lastAttempt: null,
+    sendingSince: null,
+    nextAttempt: null,
+    error: null,
+    packet: packet
+  });
+  saveOutbox(outbox);
+  emitStateChange("outboxStatus");
+}
+
+function getOutboxStatus() {
+  var outbox = loadOutbox();
+  var pending = 0, sent = 0, failed = 0;
+  for (var i = 0; i < outbox.length; i++) {
+    var s = outbox[i].status;
+    if (s === "pending" || s === "sending") pending++;
+    else if (s === "sent") sent++;
+    else if (s === "failed") failed++;
+  }
+  return { pending: pending, sent: sent, failed: failed };
+}
+
+/**
+ * getExportStatus — Per-day export status.
+ * Looks up the specific exportId stored in dayLog to determine
+ * whether THIS day's export has been sent, is pending, or failed.
+ * Never conflates with other days' export status.
+ */
+function getExportStatus() {
+  if (!ADMIN_CONFIG.exportEndpoint) return "disabled";
+  if (!dayLog || !dayLog.exportId) return "no_data";
+  var outbox = loadOutbox();
+  for (var i = 0; i < outbox.length; i++) {
+    if (outbox[i].exportId === dayLog.exportId) {
+      var s = outbox[i].status;
+      if (s === "sent") return "sent";
+      if (s === "failed") return "failed";
+      if (s === "pending" || s === "sending") return "sending";
+    }
+  }
+  // exportId exists but not found in outbox — already pruned after send
+  return "sent";
+}
+
+// --- Stuck/cleanup ---
+
+function resetStuckExports() {
+  var outbox = loadOutbox();
+  var now = Date.now();
+  var changed = false;
+  for (var i = 0; i < outbox.length; i++) {
+    if (outbox[i].status === "sending") {
+      var since = outbox[i].sendingSince ? new Date(outbox[i].sendingSince).getTime() : 0;
+      if (now - since > 120000) { // 2 minutes stuck = reset
+        outbox[i].status = "pending";
+        outbox[i].sendingSince = null;
+        changed = true;
+      }
+    }
+  }
+  if (changed) saveOutbox(outbox);
+}
+
+function cleanOldSentExports() {
+  var outbox = loadOutbox();
+  var cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 days
+  var filtered = outbox.filter(function (item) {
+    if (item.status !== "sent") return true;
+    var sentTime = item.lastAttempt ? new Date(item.lastAttempt).getTime() : 0;
+    return sentTime > cutoff;
+  });
+  if (filtered.length !== outbox.length) saveOutbox(filtered);
+}
+
+// --- HMAC signature (optional) ---
+
+function computeHmacSignature(secret, body) {
+  var encoder = new TextEncoder();
+  return crypto.subtle.importKey(
+    "raw", encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false, ["sign"]
+  ).then(function (key) {
+    return crypto.subtle.sign("HMAC", key, encoder.encode(body));
+  }).then(function (sig) {
+    return Array.from(new Uint8Array(sig)).map(function (b) {
+      return b.toString(16).padStart(2, "0");
+    }).join("");
+  }).catch(function (e) {
+    console.error("HMAC computation failed:", e);
+    return null;
+  });
+}
+
+// --- Sync engine ---
+
+function syncExports() {
+  var endpoint = ADMIN_CONFIG.exportEndpoint;
+  if (!endpoint) return;
+
+  var outbox = loadOutbox();
+  var now = new Date();
+  var nowMs = now.getTime();
+
+  // Find oldest eligible entry
+  var target = null;
+  for (var i = 0; i < outbox.length; i++) {
+    var item = outbox[i];
+    if (item.status === "pending") {
+      target = item;
+      break;
+    }
+    if (item.status === "failed" && item.retries < 10) {
+      var nextAttempt = item.nextAttempt ? new Date(item.nextAttempt).getTime() : 0;
+      if (nowMs >= nextAttempt) {
+        target = item;
+        break;
+      }
+    }
+  }
+  if (!target) return;
+
+  // Mark as sending
+  target.status = "sending";
+  target.sendingSince = now.toISOString();
+  target.lastAttempt = now.toISOString();
+  saveOutbox(outbox);
+  emitStateChange("outboxStatus");
+
+  var body = JSON.stringify(target.packet);
+  var targetExportId = target.exportId;
+  var headers = {
+    "Content-Type": "application/json",
+    "X-Punchout-Version": target.packet.exportVersion || "1.0",
+    "X-Punchout-Device": target.packet.deviceId || ""
+  };
+
+  var doFetch = function (hdrs) {
+    fetch(endpoint, {
+      method: "POST",
+      headers: hdrs,
+      body: body
+    }).then(function (response) {
+      // Re-read outbox (may have changed during async fetch)
+      var ob = loadOutbox();
+      var entry = null;
+      for (var j = 0; j < ob.length; j++) {
+        if (ob[j].exportId === targetExportId) { entry = ob[j]; break; }
+      }
+      if (!entry) return;
+
+      if (response.ok || response.status === 409) {
+        // Success or duplicate — mark sent
+        entry.status = "sent";
+        entry.sendingSince = null;
+        entry.error = null;
+      } else if (response.status >= 400 && response.status < 500) {
+        // Client error (not 409) — do not retry
+        entry.status = "failed";
+        entry.sendingSince = null;
+        entry.retries = 10; // Exhausted
+        entry.error = response.status + " " + response.statusText;
+      } else {
+        // 5xx — retry with exponential backoff
+        entry.status = "failed";
+        entry.sendingSince = null;
+        entry.retries++;
+        entry.error = response.status + " " + response.statusText;
+        var delay = Math.min(Math.pow(2, entry.retries) * 30000, 3600000);
+        entry.nextAttempt = new Date(Date.now() + delay).toISOString();
+      }
+      saveOutbox(ob);
+      emitStateChange("outboxStatus");
+    }).catch(function (err) {
+      // Network error — retry with backoff
+      var ob = loadOutbox();
+      var entry = null;
+      for (var j = 0; j < ob.length; j++) {
+        if (ob[j].exportId === targetExportId) { entry = ob[j]; break; }
+      }
+      if (!entry) return;
+      entry.status = "failed";
+      entry.sendingSince = null;
+      entry.retries++;
+      entry.error = err.message || "Network error";
+      var delay = Math.min(Math.pow(2, entry.retries) * 30000, 3600000);
+      entry.nextAttempt = new Date(Date.now() + delay).toISOString();
+      saveOutbox(ob);
+      emitStateChange("outboxStatus");
+    });
+  };
+
+  // If HMAC secret configured, compute signature then send
+  if (ADMIN_CONFIG.exportHmacSecret) {
+    computeHmacSignature(ADMIN_CONFIG.exportHmacSecret, body).then(function (sig) {
+      if (sig) headers["X-Punchout-Signature"] = sig;
+      doFetch(headers);
+    });
+  } else {
+    doFetch(headers);
+  }
+}
+
+// --- Export init (called from init()) ---
+
+function initExportSync() {
+  resetStuckExports();
+  cleanOldSentExports();
+  syncExports();
+  syncIntervalId = setInterval(syncExports, 60000);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") {
+      syncExports();
+    }
+  });
+}
+
+// ============================================================
+// DAGSRAPPORT — HUMAN-READABLE REPORT (READ-ONLY)
+// Pure function. No side effects. No persistence. No state.
+// Generates plain text from dayLog on demand.
+// ============================================================
+
+function buildHumanReadableReport(log) {
+  if (!log) return "";
+  var SEP = "----------------------------------------";
+  var lines = [];
+
+  lines.push("PUNCHOUT DAGSRAPPORT");
+  lines.push("====================");
+  lines.push("");
+  lines.push("Dato:   " + (log.date || "?"));
+  lines.push("Ansatt: " + (ADMIN_CONFIG.userId || "Ikke satt"));
+  lines.push("Enhet:  " + getOrCreateDeviceId());
+  lines.push("");
+
+  // Start / Slutt
+  lines.push("START / SLUTT");
+  lines.push("Start: " + (log.startTime || "?"));
+  lines.push("Slutt: " + (log.endTime || "?"));
+  lines.push("");
+
+  // Entries
+  lines.push(SEP);
+  lines.push("REGISTRERINGER");
+  lines.push(SEP);
+  lines.push("");
+
+  var entries = log.entries || [];
+  if (entries.length === 0) {
+    lines.push("(ingen registreringer)");
+    lines.push("");
+  } else {
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      var typeLabel = (e.type || "notat").toUpperCase();
+      lines.push((e.time || "??:??") + "  " + typeLabel);
+      lines.push(e.text || "(tom)");
+
+      // Entry flags
+      if (e.ruhDecision === "yes") lines.push("RUH: Bekreftet");
+      if (e.ruhDecision === "no") lines.push("RUH: Avslått");
+      if (e.vaktloggConfirmed) lines.push("Vaktlogg: Bekreftet");
+      if (e.vaktloggDiscarded) lines.push("Vaktlogg: Forkastet");
+      if (e.converted) lines.push("Konvertert til skjema");
+      if (e.keptAsNote) lines.push("Beholdt som notat");
+
+      lines.push("");
+    }
+  }
+
+  // Schemas
+  var schemas = (log.schemas || []).filter(function (s) {
+    return s.status === "confirmed" || s.status === "discarded";
+  });
+  if (schemas.length > 0) {
+    lines.push(SEP);
+    lines.push("SKJEMA");
+    lines.push(SEP);
+    lines.push("");
+
+    var schemaLabels = {
+      ruh: "RUH (Rapport Uønsket Hendelse)",
+      vaktlogg: "Vaktlogg-bekreftelse",
+      hendelse: "Hendelse",
+      friksjonsmaling: "Friksjonsmåling",
+      sja_preday: "SJA (før jobb)",
+      kjoretoyssjekk: "Kjøretøysjekk"
+    };
+
+    for (var j = 0; j < schemas.length; j++) {
+      var s = schemas[j];
+      lines.push(schemaLabels[s.type] || s.type);
+      lines.push("Status: " + (s.status === "confirmed" ? "Bekreftet" : "Forkastet"));
+
+      // Fields
+      if (s.fields) {
+        var fieldKeys = Object.keys(s.fields);
+        for (var k = 0; k < fieldKeys.length; k++) {
+          var val = s.fields[fieldKeys[k]];
+          if (val !== null && val !== undefined && val !== "") {
+            lines.push(fieldKeys[k] + ": " + val);
+          }
+        }
+      }
+      lines.push("");
+    }
+  }
+
+  // Time entries / drafts
+  var drafts = log.drafts || {};
+  var ordreKeys = Object.keys(drafts);
+  var confirmedDrafts = [];
+  for (var d = 0; d < ordreKeys.length; d++) {
+    if (drafts[ordreKeys[d]].status === "confirmed") {
+      confirmedDrafts.push(drafts[ordreKeys[d]]);
+    }
+  }
+
+  if (confirmedDrafts.length > 0) {
+    lines.push(SEP);
+    lines.push("TIMER");
+    lines.push(SEP);
+    lines.push("");
+
+    for (var t = 0; t < confirmedDrafts.length; t++) {
+      var draft = confirmedDrafts[t];
+      lines.push(draft.ordre || "?");
+      lines.push((draft.fra_tid || "?") + " – " + (draft.til_tid || "?"));
+
+      if (draft.lonnskoder && draft.lonnskoder.length > 0) {
+        lines.push("");
+        lines.push("Lønnskoder:");
+        for (var l = 0; l < draft.lonnskoder.length; l++) {
+          var lk = draft.lonnskoder[l];
+          lines.push("  " + lk.kode + " " + (lk.fra || "?") + " – " + (lk.til || "?"));
+        }
+      }
+
+      if (draft.maskintimer && draft.maskintimer.length > 0) {
+        lines.push("");
+        lines.push("Maskintimer:");
+        for (var m = 0; m < draft.maskintimer.length; m++) {
+          var mt = draft.maskintimer[m];
+          lines.push("  " + mt.maskintype + ": " + mt.timer + " t");
+        }
+      }
+
+      lines.push("");
+    }
+  }
+
+  // Footer
+  lines.push(SEP);
+  lines.push("GENERERT: " + new Date().toISOString());
+
+  // Include export ID if an outbox entry exists for this day
+  var outbox = loadOutbox();
+  for (var o = 0; o < outbox.length; o++) {
+    if (outbox[o].packet && outbox[o].packet.dayId === log.date) {
+      lines.push("EXPORT-ID: " + outbox[o].exportId);
+      break;
+    }
+  }
+
+  return lines.join("\n");
 }
 
 // ============================================================
