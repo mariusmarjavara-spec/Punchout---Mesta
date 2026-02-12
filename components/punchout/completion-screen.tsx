@@ -25,7 +25,7 @@ export function CompletionScreen() {
   const [showReport, setShowReport] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const [isResetting, setIsResetting] = useState(false);
+
 
   const handleReset = () => {
     if (isResetting) return;
@@ -55,9 +55,9 @@ export function CompletionScreen() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">
             {exportStatus === "sent" ? "Dagen er låst og lagret" :
-             exportStatus === "sending" ? "Dagen er låst" :
-             exportStatus === "failed" ? "Dagen er låst" :
-             "Dagen er låst"}
+              exportStatus === "sending" ? "Dagen er låst" :
+                exportStatus === "failed" ? "Dagen er låst" :
+                  "Dagen er låst"}
           </h1>
           <p className="mt-2 text-lg text-muted-foreground">{dateStr}</p>
         </div>
