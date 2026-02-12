@@ -84,6 +84,13 @@ var editingIndex = -1;
 var isListening = false;
 var recognition = null;
 
+// Voice hardening state
+var voiceSessionActive = false;  // Prevents overlapping recognition instances
+var voiceResultHandled = false;  // Single commit guard per session
+var voiceState = "idle";         // "idle" | "listening" | "processing" | "error"
+var voiceError = null;           // Human-readable error string, auto-clears
+var voiceErrorTimer = null;      // Timer for auto-clearing voiceError
+
 // Orchestration state
 var lastOrchestration = null;  // Result of last voice extraction
 var pendingDraftDecisions = []; // Drafts awaiting decision at day end
@@ -345,6 +352,8 @@ function getSnapshot() {
     storageError: storageError ? JSON.parse(JSON.stringify(storageError)) : null,
     isStaleDay: isStaleDay(),
     isListening: isListening,
+    voiceState: voiceState,
+    voiceError: voiceError,
     voiceSupported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
     editingIndex: editingIndex,
     outboxStatus: getOutboxStatus(),
@@ -862,40 +871,79 @@ function setupVoice() {
   recognition.maxAlternatives = 1;
   recognition.continuous = false;
 
+  // --- Deterministic listening state: TRUE only in onstart ---
+  recognition.onstart = function () {
+    isListening = true;
+    voiceState = "listening";
+    emitStateChange("isListening");
+    emitStateChange("voiceState");
+    // Latency marker (dev only)
+    if (typeof performance !== "undefined") {
+      recognition._voiceT0 = performance.now();
+    }
+  };
+
   recognition.onresult = function (event) {
-    var transcript = event.results[0][0].transcript;
+    // Single commit guard
+    if (voiceResultHandled) return;
+
+    // isFinal enforcement — only process final results
+    var finalTranscript = null;
+    for (var i = 0; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        finalTranscript = event.results[i][0].transcript;
+        break;
+      }
+    }
+    if (!finalTranscript) return;
+
+    voiceResultHandled = true;
+    voiceState = "processing";
+    emitStateChange("voiceState");
+
+    // Latency: start → result
+    if (typeof performance !== "undefined" && recognition._voiceT0) {
+      console.log("VOICE LATENCY (start\u2192result):", Math.round(performance.now() - recognition._voiceT0) + "ms");
+    }
+
+    var transcript = finalTranscript;
 
     if (REACT_MODE) {
       // Emit transcript for React UI to display
       window.dispatchEvent(new CustomEvent("voice-transcript", { detail: transcript }));
 
+      var tCommit = typeof performance !== "undefined" ? performance.now() : 0;
+
       if (appState === "NOT_STARTED") {
-        // Start phase: pass transcript to startDay for schema detection
         startDay(transcript);
       } else {
-        // Active phase: submit as entry
         var guessed = guessEntryType(transcript);
         submitEntry(transcript, guessed);
       }
-      // Stop listening AFTER state changes so React sees everything in one re-render
+
+      // Latency: result → commit
+      if (tCommit) {
+        console.log("VOICE LATENCY (result\u2192commit):", Math.round(performance.now() - tCommit) + "ms");
+      }
+
+      // State cleanup — onend will release session lock
       isListening = false;
+      voiceState = "idle";
       emitStateChange("isListening");
+      emitStateChange("voiceState");
       return;
     }
 
+    // Vanilla mode (unchanged)
     if (voiceContext === "start") {
-      // Start phase - put in start text field and check for pre-day schemas
       document.getElementById("startDayText").value = transcript;
       setStartVoiceStatus("Tekst mottatt");
       stopStartListening();
-
-      // Check for pre-day schema triggers
       var detected = detectPreDaySchemas(transcript);
       if (detected.length > 0) {
         handlePreDaySchemasFromVoice(detected, transcript);
       }
     } else {
-      // Active phase - put in entry text field
       document.getElementById("entryText").value = transcript;
       var guessed = guessEntryType(transcript);
       document.getElementById("entryType").value = guessed;
@@ -912,33 +960,72 @@ function setupVoice() {
       msg = "Mikrofontilgang avsl\u00e5tt";
     } else if (event.error === "network") {
       msg = "Nettverksfeil \u2013 trenger nett for tale";
+    } else if (event.error === "aborted") {
+      msg = null; // User-initiated stop, not a real error
     } else {
       msg += event.error;
     }
 
     if (REACT_MODE) {
-      console.warn("Voice error:", msg);
+      voiceResultHandled = true; // Prevent silent-failure handler in onend
       isListening = false;
+      if (msg) {
+        voiceState = "error";
+        voiceError = msg;
+        if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
+        voiceErrorTimer = setTimeout(function () {
+          voiceState = "idle";
+          voiceError = null;
+          emitStateChange("voiceState");
+        }, 3000);
+      } else {
+        voiceState = "idle";
+      }
       emitStateChange("isListening");
+      emitStateChange("voiceState");
       return;
     }
 
+    // Vanilla mode (unchanged)
     if (voiceContext === "start") {
-      setStartVoiceStatus(msg);
+      setStartVoiceStatus(msg || "");
       stopStartListening();
     } else {
-      setVoiceStatus(msg);
+      setVoiceStatus(msg || "");
       stopListening();
     }
   };
 
   recognition.onend = function () {
-    if (isListening) {
-      if (REACT_MODE) {
+    // Always release session lock
+    voiceSessionActive = false;
+
+    if (REACT_MODE) {
+      // Silent failure: onend without result and without error
+      if (!voiceResultHandled && isListening) {
+        voiceState = "error";
+        voiceError = "H\u00f8rte ingenting \u2013 pr\u00f8v igjen";
+        if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
+        voiceErrorTimer = setTimeout(function () {
+          voiceState = "idle";
+          voiceError = null;
+          emitStateChange("voiceState");
+        }, 3000);
+      }
+      if (isListening) {
         isListening = false;
         emitStateChange("isListening");
-        return;
       }
+      // Ensure voiceState is not stuck on "listening"
+      if (voiceState === "listening") {
+        voiceState = "idle";
+      }
+      emitStateChange("voiceState");
+      return;
+    }
+
+    // Vanilla mode (unchanged)
+    if (isListening) {
       if (voiceContext === "start") {
         stopStartListening();
       } else {
@@ -955,18 +1042,37 @@ function toggleVoiceReact() {
   if (!recognition) {
     return; // Browser doesn't support speech
   }
-  if (isListening) {
+
+  // If already listening or session active, stop — onend handles cleanup
+  if (isListening || voiceSessionActive) {
     recognition.stop();
-    isListening = false;
-    emitStateChange("isListening");
-  } else {
-    try {
-      recognition.start();
-      isListening = true;
-      emitStateChange("isListening");
-    } catch (e) {
-      // start() failed — don't set isListening
-    }
+    return;
+  }
+
+  // Clear previous error
+  if (voiceErrorTimer) {
+    clearTimeout(voiceErrorTimer);
+    voiceErrorTimer = null;
+  }
+  voiceError = null;
+
+  // Reset per-session guards
+  voiceResultHandled = false;
+  voiceSessionActive = true;
+
+  try {
+    recognition.start();
+    // NOTE: isListening is set in onstart, NOT here
+  } catch (e) {
+    voiceSessionActive = false;
+    voiceState = "error";
+    voiceError = "Kunne ikke starte tale";
+    emitStateChange("voiceState");
+    voiceErrorTimer = setTimeout(function () {
+      voiceState = "idle";
+      voiceError = null;
+      emitStateChange("voiceState");
+    }, 3000);
   }
 }
 
@@ -1510,20 +1616,31 @@ function submitEntry(entryText, entryType) {
     text: text
   });
 
-  // Orchestration: extract facts from voice text
-  lastOrchestration = orchestrateEntry(text);
+  if (REACT_MODE) {
+    // Phase 1: Entry visible immediately — UI never waits on parsing
+    saveCurrentDay();
+    emitStateChange("dayLog");
 
-  // If ordre found, update/create draft
+    // Phase 2: Orchestration + schema triggers deferred to next tick
+    var _idx = entryIndex;
+    var _text = text;
+    var _type = type;
+    setTimeout(function () {
+      processEntryOrchestration(_idx, _text, _type);
+    }, 0);
+    return;
+  }
+
+  // Vanilla mode: synchronous as before
+  lastOrchestration = orchestrateEntry(text);
   if (lastOrchestration.ordre) {
     updateDraftFromOrchestration(lastOrchestration, entryIndex);
   }
 
-  // Check for running schema triggers
   var runningSchemaKey = detectRunningSchema(text);
   if (runningSchemaKey) {
     var newSchema = createSchemaInstance(runningSchemaKey, "running");
     if (newSchema) {
-      // Pre-fill what we can from the text
       if (newSchema.fields.beskrivelse !== undefined) {
         newSchema.fields.beskrivelse = text;
       }
@@ -1532,82 +1649,107 @@ function submitEntry(entryText, entryType) {
     }
   }
 
-  // Check for drift schema triggers based on entry type
   if (type === "hendelse" && ADMIN_CONFIG.ruhTriggerTypes.indexOf("hendelse") !== -1) {
-    if (REACT_MODE) {
-      // React mode: create deferred RUH schema, no blocking
-      var ruhSchema = {
-        id: "ruh_" + Date.now(),
-        type: "ruh",
-        origin: "drift",
-        status: "draft",
-        createdAt: new Date().toISOString(),
-        confirmedAt: null,
-        linkedEntries: [entryIndex],
-        fields: {
-          tidspunkt: dayLog.entries[entryIndex].time,
-          beskrivelse: dayLog.entries[entryIndex].text,
-          sted: null,
-          arsak: null,
-          tiltak: null
-        }
-      };
-      if (!dayLog.schemas) dayLog.schemas = [];
-      dayLog.schemas.push(ruhSchema);
-    } else {
-      // Vanilla mode: keep inline blocking
-      pendingRuhQuestion = { entryIndex: entryIndex };
-      input.value = "";
-      document.getElementById("entryType").value = "notat";
-      setVoiceStatus("");
-      saveCurrentDay();
-      showRuhQuestionOverlay();
-      return;
-    }
-  }
-
-  if (type === "vaktlogg" && ADMIN_CONFIG.immediateConfirmTypes.indexOf("vaktlogg") !== -1) {
-    if (REACT_MODE) {
-      // React mode: create deferred vaktlogg schema, no blocking
-      var vaktloggDraftSchema = {
-        id: "vaktlogg_" + Date.now(),
-        type: "vaktlogg",
-        origin: "drift",
-        status: "draft",
-        createdAt: new Date().toISOString(),
-        confirmedAt: null,
-        linkedEntries: [entryIndex],
-        fields: {
-          tidspunkt: dayLog.entries[entryIndex].time,
-          innhold: dayLog.entries[entryIndex].text
-        }
-      };
-      if (!dayLog.schemas) dayLog.schemas = [];
-      dayLog.schemas.push(vaktloggDraftSchema);
-    } else {
-      // Vanilla mode: keep inline blocking
-      pendingImmediateConfirm = { type: "vaktlogg", entryIndex: entryIndex };
-      input.value = "";
-      document.getElementById("entryType").value = "notat";
-      setVoiceStatus("");
-      saveCurrentDay();
-      showVaktloggConfirmOverlay();
-      return;
-    }
-  }
-
-  if (type === "friksjon" && ADMIN_CONFIG.endOfDayConfirmTypes.indexOf("friksjonsmaling") !== -1) {
-    // Create friksjonsmåling draft for end-of-day confirmation
-    createFriksjonDraft(entryIndex, text);
-  }
-
-  if (!REACT_MODE) {
+    pendingRuhQuestion = { entryIndex: entryIndex };
     input.value = "";
     document.getElementById("entryType").value = "notat";
     setVoiceStatus("");
+    saveCurrentDay();
+    showRuhQuestionOverlay();
+    return;
   }
+
+  if (type === "vaktlogg" && ADMIN_CONFIG.immediateConfirmTypes.indexOf("vaktlogg") !== -1) {
+    pendingImmediateConfirm = { type: "vaktlogg", entryIndex: entryIndex };
+    input.value = "";
+    document.getElementById("entryType").value = "notat";
+    setVoiceStatus("");
+    saveCurrentDay();
+    showVaktloggConfirmOverlay();
+    return;
+  }
+
+  if (type === "friksjon" && ADMIN_CONFIG.endOfDayConfirmTypes.indexOf("friksjonsmaling") !== -1) {
+    createFriksjonDraft(entryIndex, text);
+  }
+
+  input.value = "";
+  document.getElementById("entryType").value = "notat";
+  setVoiceStatus("");
   saveCurrentDay();
   render();
+}
+
+// Deferred orchestration for React mode (runs on next tick after entry is visible)
+function processEntryOrchestration(entryIndex, text, type) {
+  var t0 = typeof performance !== "undefined" ? performance.now() : 0;
+
+  lastOrchestration = orchestrateEntry(text);
+  if (lastOrchestration.ordre) {
+    updateDraftFromOrchestration(lastOrchestration, entryIndex);
+  }
+
+  var runningSchemaKey = detectRunningSchema(text);
+  if (runningSchemaKey) {
+    var newSchema = createSchemaInstance(runningSchemaKey, "running");
+    if (newSchema) {
+      if (newSchema.fields.beskrivelse !== undefined) {
+        newSchema.fields.beskrivelse = text;
+      }
+      newSchema.linkedEntries.push(entryIndex);
+      dayLog.schemas.push(newSchema);
+    }
+  }
+
+  if (type === "hendelse" && ADMIN_CONFIG.ruhTriggerTypes.indexOf("hendelse") !== -1) {
+    var ruhSchema = {
+      id: "ruh_" + Date.now(),
+      type: "ruh",
+      origin: "drift",
+      status: "draft",
+      createdAt: new Date().toISOString(),
+      confirmedAt: null,
+      linkedEntries: [entryIndex],
+      fields: {
+        tidspunkt: dayLog.entries[entryIndex].time,
+        beskrivelse: dayLog.entries[entryIndex].text,
+        sted: null,
+        arsak: null,
+        tiltak: null
+      }
+    };
+    if (!dayLog.schemas) dayLog.schemas = [];
+    dayLog.schemas.push(ruhSchema);
+  }
+
+  if (type === "vaktlogg" && ADMIN_CONFIG.immediateConfirmTypes.indexOf("vaktlogg") !== -1) {
+    var vaktloggDraftSchema = {
+      id: "vaktlogg_" + Date.now(),
+      type: "vaktlogg",
+      origin: "drift",
+      status: "draft",
+      createdAt: new Date().toISOString(),
+      confirmedAt: null,
+      linkedEntries: [entryIndex],
+      fields: {
+        tidspunkt: dayLog.entries[entryIndex].time,
+        innhold: dayLog.entries[entryIndex].text
+      }
+    };
+    if (!dayLog.schemas) dayLog.schemas = [];
+    dayLog.schemas.push(vaktloggDraftSchema);
+  }
+
+  if (type === "friksjon" && ADMIN_CONFIG.endOfDayConfirmTypes.indexOf("friksjonsmaling") !== -1) {
+    createFriksjonDraft(entryIndex, text);
+  }
+
+  saveCurrentDay();
+  emitStateChange("dayLog");
+
+  if (t0) {
+    console.log("VOICE LATENCY (parse+draft):", Math.round(performance.now() - t0) + "ms");
+  }
 }
 
 function openEdit(index) {
