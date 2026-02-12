@@ -119,6 +119,8 @@ export interface MotorSnapshot {
   storageError: StorageError | null;
   isStaleDay: boolean;
   isListening: boolean;
+  voiceState: 'idle' | 'listening' | 'processing' | 'error';
+  voiceError: string | null;
   voiceSupported: boolean;
   editingIndex: number;
   outboxStatus: OutboxStatus;

@@ -39,6 +39,8 @@ const LOG_TYPE_INFO: Record<string, { icon: typeof FileText; label: string; colo
 export function OperationsPhase() {
   const dayLog = useMotorState('dayLog');
   const isListening = useMotorState('isListening');
+  const voiceState = useMotorState('voiceState');
+  const voiceError = useMotorState('voiceError');
   const voiceSupported = useMotorState('voiceSupported');
   const editingIndex = useMotorState('editingIndex');
   const motor = useMotor();
@@ -183,16 +185,24 @@ export function OperationsPhase() {
         {/* Voice button area */}
         <div className="flex flex-col items-center gap-4 py-8">
           <VoiceButton
-            isListening={!!isListening}
+            isListening={voiceState === "listening"}
             onClick={() => motor?.toggleVoice()}
-            label={isListening ? "Lytter..." : "Loggfør"}
+            label={
+              voiceState === "listening" ? "Lytter..." :
+              voiceState === "processing" ? "Behandler..." :
+              "Loggfør"
+            }
             size="lg"
-            disabled={!voiceSupported}
+            disabled={!voiceSupported || voiceState === "processing"}
             className="bg-green-600 hover:bg-green-700"
           />
-          <p className="text-sm text-muted-foreground">
-            Trykk for å logge hendelse, notat, eller ordre
-          </p>
+          {voiceState === "error" && voiceError ? (
+            <p className="text-sm text-destructive">{voiceError}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Trykk for å logge hendelse, notat, eller ordre
+            </p>
+          )}
         </div>
 
         {/* Text input fallback */}
