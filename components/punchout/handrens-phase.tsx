@@ -333,6 +333,9 @@ function LockDayButton({
     if (isLocking) return;
     setIsLocking(true);
     motor.lockDay();
+    // Safety: if lockDay returned early (race with new unresolved items), reset after 500ms.
+    // If lock succeeded, component unmounts before timer fires (harmless noop).
+    setTimeout(() => setIsLocking(false), 500);
   };
 
   return (

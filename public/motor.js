@@ -90,6 +90,7 @@ var voiceResultHandled = false;  // Single commit guard per session
 var voiceState = "idle";         // "idle" | "listening" | "processing" | "error"
 var voiceError = null;           // Human-readable error string, auto-clears
 var voiceErrorTimer = null;      // Timer for auto-clearing voiceError
+var voiceAutoTimeout = null;     // 15s auto-timeout for field safety
 
 // Orchestration state
 var lastOrchestration = null;  // Result of last voice extraction
@@ -857,7 +858,7 @@ function tryIgnoreError() {
   render();
 }
 
-// --- Voice (Web Speech API, per-entry, not continuous) ---
+// --- Voice (Web Speech API, continuous mode, one-result-per-click) ---
 var voiceContext = "active";  // "start" or "active" - determines where voice goes
 
 function setupVoice() {
@@ -869,10 +870,13 @@ function setupVoice() {
   recognition.lang = "nb-NO";
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
-  recognition.continuous = false;
+  recognition.continuous = true;
 
   // --- Deterministic listening state: TRUE only in onstart ---
   recognition.onstart = function () {
+    // Guard: if session was already stopped (double-tap race), ignore stale onstart
+    if (!voiceSessionActive) return;
+
     isListening = true;
     voiceState = "listening";
     emitStateChange("isListening");
@@ -896,6 +900,9 @@ function setupVoice() {
       }
     }
     if (!finalTranscript) return;
+
+    // Clear auto-timeout — result received
+    if (voiceAutoTimeout) { clearTimeout(voiceAutoTimeout); voiceAutoTimeout = null; }
 
     voiceResultHandled = true;
     voiceState = "processing";
@@ -926,11 +933,13 @@ function setupVoice() {
         console.log("VOICE LATENCY (result\u2192commit):", Math.round(performance.now() - tCommit) + "ms");
       }
 
-      // State cleanup — onend will release session lock
+      // Stop recognition (continuous mode doesn't auto-stop)
+      // Then clean up state — onend will release session lock
       isListening = false;
       voiceState = "idle";
       emitStateChange("isListening");
       emitStateChange("voiceState");
+      try { recognition.stop(); } catch (_) {}
       return;
     }
 
@@ -953,6 +962,9 @@ function setupVoice() {
   };
 
   recognition.onerror = function (event) {
+    // Clear auto-timeout — error received
+    if (voiceAutoTimeout) { clearTimeout(voiceAutoTimeout); voiceAutoTimeout = null; }
+
     var msg = "Feil: ";
     if (event.error === "no-speech") {
       msg = "Ingen tale fanget opp";
@@ -997,12 +1009,19 @@ function setupVoice() {
   };
 
   recognition.onend = function () {
+    // Clear auto-timeout — session ended
+    if (voiceAutoTimeout) { clearTimeout(voiceAutoTimeout); voiceAutoTimeout = null; }
+
     // Always release session lock
     voiceSessionActive = false;
 
     if (REACT_MODE) {
-      // Silent failure: onend without result and without error
-      if (!voiceResultHandled && isListening) {
+      // Only show "Hørte ingenting" if we were genuinely listening for a while
+      // and got no result and no error. With continuous=true, a normal user-stop
+      // goes through onerror("aborted") first, setting voiceResultHandled=true.
+      if (!voiceResultHandled && isListening && recognition._voiceT0 &&
+          (typeof performance !== "undefined") &&
+          (performance.now() - recognition._voiceT0 > 1500)) {
         voiceState = "error";
         voiceError = "H\u00f8rte ingenting \u2013 pr\u00f8v igjen";
         if (voiceErrorTimer) clearTimeout(voiceErrorTimer);
@@ -1016,7 +1035,7 @@ function setupVoice() {
         isListening = false;
         emitStateChange("isListening");
       }
-      // Ensure voiceState is not stuck on "listening"
+      // Only reset to idle from "listening" — don't overwrite processing/error
       if (voiceState === "listening") {
         voiceState = "idle";
       }
@@ -1063,6 +1082,12 @@ function toggleVoiceReact() {
   try {
     recognition.start();
     // NOTE: isListening is set in onstart, NOT here
+    // Auto-timeout: stop mic after 15s if no result (field safety)
+    voiceAutoTimeout = setTimeout(function () {
+      if (voiceSessionActive && !voiceResultHandled) {
+        try { recognition.stop(); } catch (_) {}
+      }
+    }, 15000);
   } catch (e) {
     voiceSessionActive = false;
     voiceState = "error";
@@ -1577,6 +1602,7 @@ function startNewDay() {
 // --- Entry actions ---
 function submitEntry(entryText, entryType) {
   if (appState !== "ACTIVE") return;
+  if (dayLog && dayLog.phase === "ending") return;
 
   // In React mode, inline blocking is removed — decisions are deferred to end-of-day.
   // In vanilla mode, keep blocking for backwards compatibility.
@@ -1682,6 +1708,9 @@ function submitEntry(entryText, entryType) {
 
 // Deferred orchestration for React mode (runs on next tick after entry is visible)
 function processEntryOrchestration(entryIndex, text, type) {
+  // Defensive: dayLog could be null if startNewDay() raced with setTimeout(0)
+  if (!dayLog) return;
+
   var t0 = typeof performance !== "undefined" ? performance.now() : 0;
 
   lastOrchestration = orchestrateEntry(text);
@@ -4252,6 +4281,7 @@ function parseEntry(text) {
  */
 function confirmStructuredEntry(text, type, parsed) {
   if (appState !== "ACTIVE") return;
+  if (dayLog && dayLog.phase === "ending") return;
   if (!parsed || !parsed.ordre) return;
 
   if (dayLog.phase === "pre") {

@@ -101,6 +101,8 @@ export function StartDayPhase() {
   const dayLog = useMotorState('dayLog');
   const uxState = useMotorState('uxState');
   const isListening = useMotorState('isListening');
+  const voiceState = useMotorState('voiceState');
+  const voiceError = useMotorState('voiceError');
   const voiceSupported = useMotorState('voiceSupported');
   const motor = useMotor();
 
@@ -130,9 +132,9 @@ export function StartDayPhase() {
   const isNotStarted = appState === 'NOT_STARTED';
   const isPreDay = appState === 'ACTIVE' && dayLog?.phase === 'pre';
 
-  // Auto-transition when voice stops
+  // Auto-transition when voice stops (use voiceState for determinism)
   useEffect(() => {
-    if (startUIState === 'listening' && !isListening) {
+    if (startUIState === 'listening' && voiceState !== 'listening' && voiceState !== 'processing') {
       if (appState === 'ACTIVE') {
         // Voice result triggered startDay — show pre-day review
         setStartUIState('review');
@@ -141,7 +143,7 @@ export function StartDayPhase() {
         setStartUIState('idle');
       }
     }
-  }, [isListening, startUIState, appState]);
+  }, [voiceState, startUIState, appState]);
 
   // Check if we're editing a schema (overlay state)
   const isEditingSchema = uxState?.activeOverlay === 'schema_edit' && uxState?.schemaId;
@@ -184,6 +186,8 @@ export function StartDayPhase() {
     if (hasRequiredBlocking) return; // Motor will also block
     setIsContinuing(true);
     motor?.continueFromPreDay();
+    // Safety: reset if motor rejected (e.g. required schema missing). Same pattern as LockDayButton.
+    setTimeout(() => setIsContinuing(false), 500);
   };
 
   // Handle defer schema (Utsett — shows up at end-of-day)
@@ -283,16 +287,26 @@ export function StartDayPhase() {
             </div>
 
             <VoiceButton
-              isListening={true}
+              isListening={voiceState === "listening"}
               onClick={() => motor?.toggleVoice()}
-              label="Lytter..."
+              label={
+                voiceState === "listening" ? "Lytter..." :
+                voiceState === "processing" ? "Behandler..." :
+                "Lytter..."
+              }
               size="xl"
-              disabled={!voiceSupported}
+              disabled={!voiceSupported || voiceState === "processing"}
             />
 
-            <p className="max-w-xs text-center text-sm text-muted-foreground">
-              Trykk igjen for å gå videre
-            </p>
+            {voiceState === "error" && voiceError ? (
+              <p className="max-w-xs text-center text-sm text-destructive">
+                {voiceError}
+              </p>
+            ) : (
+              <p className="max-w-xs text-center text-sm text-muted-foreground">
+                Trykk igjen for å gå videre
+              </p>
+            )}
           </div>
         </div>
       </div>
