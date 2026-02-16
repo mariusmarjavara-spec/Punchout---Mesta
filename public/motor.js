@@ -747,7 +747,8 @@ function saveCurrentDay() {
     emitStateChange("dayLog");
   } catch (e) {
     console.error("Failed to save current day:", e);
-    // Don't crash - just log. User can still continue working
+    storageError = { type: "save", message: "Kunne ikke lagre dagens data", raw: String(e) };
+    emitStateChange("storageError");
   }
 }
 

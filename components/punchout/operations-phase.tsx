@@ -105,6 +105,7 @@ export function OperationsPhase() {
     if (isEnding) return;
     setIsEnding(true);
     motor?.endDay();
+    setTimeout(() => setIsEnding(false), 500);
   };
 
   return (
