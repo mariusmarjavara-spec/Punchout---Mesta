@@ -50,6 +50,7 @@ export function OperationsPhase() {
   const [selectedType, setSelectedType] = useState<string>("notat");
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const [confirmingEndDay, setConfirmingEndDay] = useState(false);
   const [editText, setEditText] = useState("");
   const [pendingReview, setPendingReview] = useState<{ text: string; type: string; parsed: ParsedEntry } | null>(null);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -439,14 +440,38 @@ export function OperationsPhase() {
 
       {/* Bottom action bar */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-background/95 px-4 py-4 backdrop-blur-sm">
-        <button
-          onClick={handleEndDay}
-          disabled={isEnding}
-          type="button"
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-4 font-medium text-secondary-foreground transition-all active:scale-[0.98] disabled:opacity-50"
-        >
-          {isEnding ? "Avslutter..." : "Avslutt dag"}
-        </button>
+        {confirmingEndDay ? (
+          <div className="space-y-2">
+            <p className="text-center text-sm font-medium text-foreground">
+              Avslutt og gå til håndrens?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleEndDay}
+                disabled={isEnding}
+                type="button"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-4 font-medium text-primary-foreground transition-all active:scale-[0.98] disabled:opacity-50"
+              >
+                {isEnding ? "Avslutter..." : "Ja, gå videre"}
+              </button>
+              <button
+                onClick={() => setConfirmingEndDay(false)}
+                type="button"
+                className="flex flex-1 items-center justify-center rounded-xl bg-secondary py-4 font-medium text-secondary-foreground transition-all active:scale-[0.98]"
+              >
+                Avbryt
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmingEndDay(true)}
+            type="button"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-4 font-medium text-secondary-foreground transition-all active:scale-[0.98]"
+          >
+            Avslutt dag
+          </button>
+        )}
       </div>
     </div>
   );

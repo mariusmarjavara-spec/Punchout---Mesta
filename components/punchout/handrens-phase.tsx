@@ -140,6 +140,9 @@ function UnresolvedItemCard({
     );
   }
 
+  // RUH items require expand — no one-tap confirm allowed
+  const isRuh = item.kind === "schema" && item.data.type === "ruh";
+
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="flex items-center gap-3 p-4">
@@ -148,7 +151,7 @@ function UnresolvedItemCard({
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-medium text-card-foreground">{item.label}</p>
-          {item.kind === "schema" && item.data.type === "ruh" && (
+          {isRuh && (
             <p className="text-xs text-muted-foreground mt-0.5">
               Opprett RUH-rapport?
             </p>
@@ -165,7 +168,7 @@ function UnresolvedItemCard({
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {!expanded && (
+          {!expanded && !isRuh && (
             <button
               onClick={() => motor.resolveItem(item.id, "confirm")}
               type="button"
@@ -178,10 +181,19 @@ function UnresolvedItemCard({
           <button
             onClick={() => setExpanded(!expanded)}
             type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary text-secondary-foreground transition-all active:scale-95"
-            aria-label={expanded ? "Skjul" : "Mer"}
+            className={cn(
+              "flex h-10 shrink-0 items-center justify-center rounded-lg transition-all active:scale-95",
+              isRuh && !expanded
+                ? "bg-secondary px-3 text-sm font-medium text-secondary-foreground"
+                : "w-10 bg-secondary text-secondary-foreground"
+            )}
+            aria-label={expanded ? "Skjul" : isRuh ? "Behandle" : "Mer"}
           >
-            <X className={cn("h-4 w-4 transition-transform", expanded && "rotate-45")} />
+            {isRuh && !expanded ? (
+              "Behandle"
+            ) : (
+              <X className={cn("h-4 w-4 transition-transform", expanded && "rotate-45")} />
+            )}
           </button>
         </div>
       </div>
@@ -195,7 +207,7 @@ function UnresolvedItemCard({
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 font-medium text-primary-foreground transition-all active:scale-[0.98]"
           >
             <Check className="h-4 w-4" />
-            Bekreft
+            {isRuh ? "Bekreft opprettelse av RUH-rapport" : "Bekreft"}
           </button>
           <button
             onClick={() => motor.resolveItem(item.id, "discard")}
@@ -278,10 +290,15 @@ function MainTimeCard({
                 <Check className="h-4 w-4" />
                 Bekreft timeark
               </button>
+              {lonnskoder.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Lønnskoder mangler. Bruk «Forkast timeføring» dersom timer føres i annet system.
+                </p>
+              )}
               <button
                 onClick={() => setShowDiscardOptions(true)}
                 type="button"
-                className="flex w-full items-center justify-center py-2 text-sm text-muted-foreground transition-all hover:text-destructive"
+                className="flex w-full items-center justify-center rounded-lg border border-border py-2.5 text-sm font-medium text-secondary-foreground transition-all active:scale-[0.98]"
               >
                 Forkast timeføring...
               </button>
