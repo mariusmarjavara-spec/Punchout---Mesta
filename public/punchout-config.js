@@ -18,13 +18,15 @@ window.PUNCHOUT_CONFIG = {
   // 1. LØNNSKODER
   // Vises som valgmuligheter i timearket.
   // Legg til eller fjern koder etter behov.
-  // Format: { kode: "KODE", label: "Visningsnavn" }
+  // Støtter både label og navn som visningsnavn-felt.
+  // Format: { kode: "KODE", navn: "Visningsnavn" }
+  //      eller { kode: "KODE", label: "Visningsnavn" }
   // ============================================================
   lonnskoder: [
-    { kode: "ORD",   label: "Ordinær" },
-    { kode: "OT50",  label: "Overtid 50%" },
-    { kode: "OT100", label: "Overtid 100%" },
-    { kode: "NATT",  label: "Nattillegg" },
+    { kode: "100", navn: "Ordinær arbeidstid" },
+    { kode: "200", navn: "Overtid 50%" },
+    { kode: "300", navn: "Overtid 100%" },
+    { kode: "999", navn: "TESTKODE" },
   ],
 
   // ============================================================

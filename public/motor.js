@@ -13,6 +13,14 @@ var NEVER_AUTO_FILL = ["konsekvens", "tiltak", "forslag_tiltak", "arsak", "vurde
 // ADMIN CONFIGURATION (data, not logic)
 // ============================================================
 
+// Default wage codes — used as fallback when no config is provided
+var DEFAULT_LONNSKODER = [
+  { kode: "ORD",   label: "Ordin\u00e6r" },
+  { kode: "OT50",  label: "Overtid 50%" },
+  { kode: "OT100", label: "Overtid 100%" },
+  { kode: "NATT",  label: "Nattillegg" }
+];
+
 var ADMIN_CONFIG = {
   // Required schemas - admin-controlled, blocks start if when() returns true
   // Schema is REQUIRED only if it appears here with when() returning true
@@ -59,22 +67,38 @@ var ADMIN_CONFIG = {
     { key: "huskelapp", label: "Huskelapp (intern)" }
   ],
 
-  // Available wage codes — override via punchout-config.js (window.PUNCHOUT_CONFIG.lonnskoder)
-  lonnskoder: (window.PUNCHOUT_CONFIG && window.PUNCHOUT_CONFIG.lonnskoder) || [
-    { kode: "ORD", label: "Ordin\u00e6r" },
-    { kode: "OT50", label: "Overtid 50%" },
-    { kode: "OT100", label: "Overtid 100%" },
-    { kode: "NATT", label: "Nattillegg" }
-  ],
+  // Available wage codes — set from DEFAULT_LONNSKODER, overridden by RUNTIME_CONFIG below
+  lonnskoder: DEFAULT_LONNSKODER,
 
-  // Main order number — override via punchout-config.js (window.PUNCHOUT_CONFIG.hovedordre)
-  hovedordre: (window.PUNCHOUT_CONFIG && window.PUNCHOUT_CONFIG.hovedordre) || "HOVED",
+  // Main order number — overridden by RUNTIME_CONFIG below
+  hovedordre: "HOVED",
 
   // Export configuration (edge → customer endpoint)
   userId: null,              // string — identifies the worker, default "anonymous"
   exportEndpoint: null,      // URL — null = export disabled
   exportHmacSecret: null     // string — null = no HMAC signature
 };
+
+// ============================================================
+// RUNTIME CONFIG — normalises window.PUNCHOUT_CONFIG once at init.
+// All motor code reads from ADMIN_CONFIG or RUNTIME_CONFIG, never
+// from window.PUNCHOUT_CONFIG directly.
+// ============================================================
+
+var RUNTIME_CONFIG = (typeof window !== 'undefined' && window.PUNCHOUT_CONFIG)
+  ? window.PUNCHOUT_CONFIG
+  : {};
+
+// Override ADMIN_CONFIG with runtime values (single application point)
+if (RUNTIME_CONFIG.lonnskoder) {
+  // Normalise: support both label (standard) and navn (Norwegian alt) as display name
+  ADMIN_CONFIG.lonnskoder = RUNTIME_CONFIG.lonnskoder.map(function(lk) {
+    return { kode: lk.kode, label: lk.label || lk.navn || lk.kode };
+  });
+}
+if (RUNTIME_CONFIG.hovedordre) {
+  ADMIN_CONFIG.hovedordre = RUNTIME_CONFIG.hovedordre;
+}
 
 // --- State ---
 // Only one active day at a time. null = no active day.
@@ -1336,8 +1360,8 @@ function createSchemaInstance(schemaKey, origin, context) {
   }
 
   // Apply config-driven defaults for optional SJA fields (always editable by user)
-  if (schemaKey === "sja_preday" && window.PUNCHOUT_CONFIG && window.PUNCHOUT_CONFIG.sjaDefaults) {
-    var sjaD = window.PUNCHOUT_CONFIG.sjaDefaults;
+  if (schemaKey === "sja_preday" && RUNTIME_CONFIG.sjaDefaults) {
+    var sjaD = RUNTIME_CONFIG.sjaDefaults;
     if (sjaD.sted && fields.hasOwnProperty("sted") && fields.sted === null) {
       fields.sted = sjaD.sted;
     }

@@ -109,8 +109,12 @@ export function StartDayPhase() {
   const voiceSupported = useMotorState('voiceSupported');
   const motor = useMotor();
 
-  // Config-driven external links — read from punchout-config.js if available
-  const externalLinks = (typeof window !== 'undefined' && window.PUNCHOUT_CONFIG?.externalLinks) || DEFAULT_EXTERNAL_LINKS;
+  // Single SSR-safe access point for runtime config
+  const runtimeConfig = typeof window !== 'undefined' && (window as any).PUNCHOUT_CONFIG
+    ? (window as any).PUNCHOUT_CONFIG
+    : null;
+  const externalLinks: Array<{ id: string; title: string; url: string }> =
+    runtimeConfig?.externalLinks || DEFAULT_EXTERNAL_LINKS;
 
   // Language toggle (UI-only, not motor state)
   const [lang, setLang] = useState<Language>('NO');
@@ -646,8 +650,11 @@ export function SchemaEditOverlay({ dayLog, uxState, motor }: SchemaEditOverlayP
   const schema = dayLog.schemas?.find(s => s.id === uxState.schemaId);
   // Debounce ref: avoids localStorage write per every keystroke
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Config-driven vehicle list (kjøretøysjekk)
-  const configKjoretoy: string[] = (typeof window !== 'undefined' && window.PUNCHOUT_CONFIG?.kjoretoy) || [];
+  // Single SSR-safe access point for runtime config
+  const runtimeConfig = typeof window !== 'undefined' && (window as any).PUNCHOUT_CONFIG
+    ? (window as any).PUNCHOUT_CONFIG
+    : null;
+  const configKjoretoy: string[] = runtimeConfig?.kjoretoy || [];
 
   if (!schema) return null;
 
