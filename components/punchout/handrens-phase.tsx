@@ -1,6 +1,7 @@
 "use client";
 
 import { useMotorState, useMotor, type UnresolvedItem } from "@/hooks/use-motor-state";
+import { SchemaEditOverlay } from "./start-day-phase";
 import { cn } from "@/lib/utils";
 import {
   Check,
@@ -12,6 +13,7 @@ import {
   Gauge,
   Wrench,
   FileText,
+  Pencil,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -47,6 +49,7 @@ export function HandrensPhase() {
   const appState = useMotorState("appState");
   const dayLog = useMotorState("dayLog");
   const readyToLock = useMotorState("readyToLock");
+  const uxState = useMotorState("uxState");
   const motor = useMotor();
 
   // Guard
@@ -57,6 +60,12 @@ export function HandrensPhase() {
         <div className="text-muted-foreground">Laster...</div>
       </div>
     );
+  }
+
+  // Schema edit overlay — shown when user edits a schema (e.g. RUH fields) from håndrens
+  const isEditingSchema = uxState?.activeOverlay === "schema_edit" && uxState?.schemaId;
+  if (isEditingSchema && dayLog && uxState) {
+    return <SchemaEditOverlay dayLog={dayLog} uxState={uxState} motor={motor} />;
   }
 
   const unresolvedItems: UnresolvedItem[] = motor.getUnresolvedItems() || [];
@@ -129,6 +138,7 @@ function UnresolvedItemCard({
   motor: NonNullable<typeof window.Motor>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const schemaError = useMotorState("schemaError");
 
   const Icon = KIND_ICONS[item.kind] || FileText;
   const iconColor = KIND_COLORS[item.kind] || "bg-secondary";
@@ -201,6 +211,21 @@ function UnresolvedItemCard({
       {/* Expanded actions */}
       {expanded && (
         <div className="border-t border-border px-4 py-3 space-y-2">
+          {/* RUH: show edit button before confirm — arsak+tiltak must be filled */}
+          {isRuh && (
+            <button
+              onClick={() => motor.openSchemaEdit(item.data.schemaId as string)}
+              type="button"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background py-3 font-medium text-foreground transition-all active:scale-[0.98]"
+            >
+              <Pencil className="h-4 w-4" />
+              Rediger RUH-felt
+            </button>
+          )}
+          {/* schemaError shown directly above confirm button for RUH */}
+          {isRuh && schemaError && (
+            <p className="text-sm text-destructive text-center">{schemaError}</p>
+          )}
           <button
             onClick={() => motor.resolveItem(item.id, "confirm")}
             type="button"

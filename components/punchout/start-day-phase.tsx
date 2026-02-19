@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useMotorState, useMotor, Schema, UxState, DayLog } from "@/hooks/use-motor-state";
 import { VoiceButton } from "./voice-button";
 import { cn } from "@/lib/utils";
@@ -115,6 +115,8 @@ export function StartDayPhase() {
   const [voiceTranscript, setVoiceTranscript] = useState<string | null>(null);
   const [isContinuing, setIsContinuing] = useState(false);
   const [showForceStart, setShowForceStart] = useState(false);
+  // Text input fallback for start-idle (alternative to voice)
+  const [startText, setStartText] = useState('');
 
   // Listen for voice transcript from motor
   useEffect(() => {
@@ -243,17 +245,33 @@ export function StartDayPhase() {
                   setStartUIState('listening');
                   motor?.toggleVoice();
                 } else {
-                  // No voice support — start day directly
-                  motor?.startDay();
+                  // No voice support — start day with any typed text
+                  motor?.startDay(startText.trim() || undefined);
                 }
               }}
               label={t.start_button}
               size="xl"
             />
 
-            <p className="max-w-xs text-center text-sm text-muted-foreground">
-              {t.text_fallback}
-            </p>
+            {/* Text input fallback — always available, not just when voice is unsupported */}
+            <div className="w-full max-w-xs space-y-2">
+              <textarea
+                value={startText}
+                onChange={(e) => setStartText(e.target.value)}
+                placeholder="Eller skriv hva du planlegger i dag..."
+                rows={2}
+                className="w-full resize-none rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {startText.trim().length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => motor?.startDay(startText.trim())}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-3 text-sm font-medium text-secondary-foreground transition-all active:scale-[0.98]"
+                >
+                  Start med tekst
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -315,7 +333,7 @@ export function StartDayPhase() {
 
   // --- Schema Edit Overlay (during pre-day) ---
   if (isPreDay && isEditingSchema && motor && dayLog && uxState) {
-    return <PreDaySchemaEditOverlay dayLog={dayLog} uxState={uxState} motor={motor} />;
+    return <SchemaEditOverlay dayLog={dayLog} uxState={uxState} motor={motor} />;
   }
 
   // --- Review state OR ACTIVE (pre): Show pre-day suggestions ---
@@ -513,56 +531,42 @@ export function StartDayPhase() {
             ))}
           </div>
 
-          {/* Continue button - visible when all schemas are handled */}
-          {(() => {
-            const allHandled = preDaySchemas.every(s =>
-              s.status === "confirmed" || s.status === "skipped" || s.status === "discarded" || (s.status as string) === "deferred"
-            );
-            return allHandled ? (
-              <>
-                <button
-                  onClick={handleContinue}
-                  disabled={isContinuing || hasRequiredBlocking}
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center justify-center gap-2 rounded-xl py-5 text-lg font-semibold transition-all",
-                    hasRequiredBlocking
-                      ? "bg-muted text-muted-foreground"
-                      : "bg-primary text-primary-foreground",
-                    "active:scale-[0.98] disabled:opacity-50"
-                  )}
-                >
-                  {hasRequiredBlocking ? (
-                    <>{requiredUnconfirmed.length} påkrevd skjema gjenstår</>
-                  ) : (
-                    <>
-                      <Check className="h-6 w-6" />
-                      {isContinuing ? "Starter drift..." : t.go_to_operations}
-                      <ChevronRight className="h-5 w-5" />
-                    </>
-                  )}
-                </button>
-                {hasRequiredBlocking && showForceStart && (
-                  <button
-                    onClick={() => motor?.forceStartDay()}
-                    type="button"
-                    className="mt-2 flex w-full items-center justify-center rounded-xl border border-destructive/30 py-3 text-sm text-destructive transition-all active:scale-[0.98]"
-                  >
-                    Start uten påkrevde skjema (krever behandling i håndrens)
-                  </button>
-                )}
-                {!hasRequiredBlocking && (
-                  <p className="mt-3 text-center text-xs text-muted-foreground">
-                    {t.can_return}
-                  </p>
-                )}
-              </>
+          {/* Continue button — always visible. Disabled only when required schemas are missing. */}
+          <button
+            onClick={handleContinue}
+            disabled={isContinuing || hasRequiredBlocking}
+            type="button"
+            className={cn(
+              "flex w-full items-center justify-center gap-2 rounded-xl py-5 text-lg font-semibold transition-all active:scale-[0.98] disabled:opacity-50",
+              hasRequiredBlocking
+                ? "bg-muted text-muted-foreground"
+                : "bg-primary text-primary-foreground"
+            )}
+          >
+            {hasRequiredBlocking ? (
+              <>{requiredUnconfirmed.length} påkrevd skjema gjenstår</>
             ) : (
-              <p className="mt-3 text-center text-sm text-muted-foreground">
-                Behandle alle skjema for å gå videre til drift
-              </p>
-            );
-          })()}
+              <>
+                <Check className="h-6 w-6" />
+                {isContinuing ? "Starter drift..." : t.go_to_operations}
+                <ChevronRight className="h-5 w-5" />
+              </>
+            )}
+          </button>
+          {hasRequiredBlocking && showForceStart && (
+            <button
+              onClick={() => motor?.forceStartDay()}
+              type="button"
+              className="mt-2 flex w-full items-center justify-center rounded-xl border border-destructive/30 py-3 text-sm text-destructive transition-all active:scale-[0.98]"
+            >
+              Start uten påkrevde skjema (krever behandling i håndrens)
+            </button>
+          )}
+          {!hasRequiredBlocking && (
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              {t.can_return}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -573,16 +577,16 @@ export function StartDayPhase() {
 }
 
 // ============================================================
-// SCHEMA EDIT OVERLAY (for pre-day schemas)
+// SCHEMA EDIT OVERLAY — shared between pre-day and håndrens
 // ============================================================
 
-interface PreDaySchemaEditOverlayProps {
+interface SchemaEditOverlayProps {
   dayLog: DayLog;
   uxState: UxState;
   motor: NonNullable<typeof window.Motor>;
 }
 
-// Schema field definitions (matching motor)
+// Schema display labels (for header and field labels in the overlay)
 const SCHEMA_LABELS: Record<string, { label: string; fields: Record<string, string> }> = {
   sja_preday: {
     label: "SJA (før arbeid)",
@@ -606,14 +610,52 @@ const SCHEMA_LABELS: Record<string, { label: string; fields: Record<string, stri
       dekk_ok: "Dekk OK",
       kommentar: "Kommentar"
     }
+  },
+  ruh: {
+    label: "RUH-rapport",
+    fields: {
+      tidspunkt: "Tidspunkt",
+      beskrivelse: "Beskrivelse",
+      sted: "Sted",
+      arsak: "Årsak",
+      tiltak: "Tiltak"
+    }
   }
 };
 
-function PreDaySchemaEditOverlay({ dayLog, uxState, motor }: PreDaySchemaEditOverlayProps) {
+// Required fields per schema type (must match motor definitions)
+const REQUIRED_FIELDS: Record<string, string[]> = {
+  sja_preday: ["oppgave", "konsekvens", "tiltak", "godkjent"],
+  kjoretoyssjekk: ["kjoretoy", "dato"],
+  ruh: ["arsak", "tiltak"]
+};
+
+// Enum options per field (matching motor schema definitions)
+const ENUM_OPTIONS: Record<string, string[]> = {
+  arbeidsvarsling: ["ingen", "enkel", "manuell", "full"]
+};
+
+export function SchemaEditOverlay({ dayLog, uxState, motor }: SchemaEditOverlayProps) {
+  const schemaError = useMotorState('schemaError');
   const schema = dayLog.schemas?.find(s => s.id === uxState.schemaId);
+  // Debounce ref: avoids localStorage write per every keystroke
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   if (!schema) return null;
 
   const schemaDef = SCHEMA_LABELS[schema.type] || { label: schema.type, fields: {} };
+  const requiredFields = REQUIRED_FIELDS[schema.type] || [];
+  // In håndrens context, the schema is saved but NOT auto-confirmed by motor —
+  // confirmation happens via resolveItem() in HandrensPhase.
+  const isHandrens = dayLog.phase === "ending";
+  const saveLabel = isHandrens ? "Lagre" : "Lagre og bekreft";
+
+  const handleFieldChange = (key: string, value: unknown) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      motor.setSchemaField(schema.id, key, value);
+    }, 250);
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -635,52 +677,104 @@ function PreDaySchemaEditOverlay({ dayLog, uxState, motor }: PreDaySchemaEditOve
       </header>
 
       {/* Form fields */}
-      <main className="flex-1 px-4 py-6 overflow-auto">
+      <main className="flex-1 px-4 py-6 overflow-auto pb-32">
         <div className="space-y-4">
           {Object.entries(schema.fields).map(([key, value]) => {
             const fieldLabel = schemaDef.fields[key] || key;
-            const valueStr = value === null || value === undefined ? "" : String(value);
+            const isRequired = requiredFields.includes(key);
+            const enumOptions = ENUM_OPTIONS[key];
+            const currentValue = value === null || value === undefined ? "" : value;
 
             return (
               <div key={key} className="rounded-xl border border-border bg-card p-4">
                 <label className="block text-sm font-medium text-muted-foreground mb-2">
                   {fieldLabel}
+                  {isRequired && <span className="ml-1 text-destructive">*</span>}
                 </label>
-                {typeof value === "boolean" ? (
-                  <div className="flex items-center gap-3">
-                    <span className={cn(
-                      "text-lg font-medium",
-                      value === true ? "text-success" : value === false ? "text-destructive" : "text-muted-foreground"
-                    )}>
-                      {value === true ? "Ja" : value === false ? "Nei" : "Ikke satt"}
-                    </span>
+
+                {/* Boolean field — three-state toggle */}
+                {typeof currentValue === "boolean" || (currentValue === "" && (key.endsWith("_ok") || key === "godkjent")) ? (
+                  <div className="flex gap-2">
+                    {(["true", "false", "null"] as const).map((opt) => {
+                      const optLabel = opt === "true" ? "Ja" : opt === "false" ? "Nei" : "Ikke satt";
+                      const isActive =
+                        opt === "true" ? currentValue === true :
+                        opt === "false" ? currentValue === false :
+                        currentValue === "" || currentValue === null || currentValue === undefined;
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => {
+                            const val = opt === "true" ? true : opt === "false" ? false : null;
+                            motor.setSchemaField(schema.id, key, val);
+                          }}
+                          className={cn(
+                            "flex-1 rounded-lg py-2.5 text-sm font-medium transition-all active:scale-95",
+                            isActive
+                              ? opt === "true" ? "bg-success text-success-foreground"
+                                : opt === "false" ? "bg-destructive text-destructive-foreground"
+                                : "bg-secondary text-secondary-foreground"
+                              : "border border-border bg-background text-muted-foreground"
+                          )}
+                        >
+                          {optLabel}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : enumOptions ? (
+                  /* Enum field — segmented options */
+                  <div className="flex flex-wrap gap-2">
+                    {enumOptions.map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => motor.setSchemaField(schema.id, key, opt)}
+                        className={cn(
+                          "rounded-lg px-3 py-2 text-sm font-medium capitalize transition-all active:scale-95",
+                          currentValue === opt
+                            ? "bg-primary text-primary-foreground"
+                            : "border border-border bg-background text-muted-foreground"
+                        )}
+                      >
+                        {opt}
+                      </button>
+                    ))}
                   </div>
                 ) : (
-                  <p className="text-foreground">
-                    {valueStr || <span className="text-muted-foreground italic">Ikke utfylt</span>}
-                  </p>
+                  /* String field — textarea */
+                  <textarea
+                    defaultValue={typeof currentValue === "string" ? currentValue : ""}
+                    onChange={(e) => handleFieldChange(key, e.target.value || null)}
+                    placeholder={`Skriv ${fieldLabel.toLowerCase()}...`}
+                    rows={key === "tiltak" || key === "konsekvens" || key === "arsak" || key === "beskrivelse" ? 3 : 2}
+                    className={cn(
+                      "w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary",
+                      isRequired && (currentValue === "" || currentValue === null)
+                        ? "border-destructive/50"
+                        : "border-border"
+                    )}
+                  />
                 )}
               </div>
             );
           })}
         </div>
-
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          Skjemaredigering håndteres av motor.
-          <br />
-          Trykk Lagre for å bekrefte eller Avbryt for å gå tilbake.
-        </p>
       </main>
 
       {/* Actions */}
-      <div className="sticky bottom-0 border-t border-border bg-background/95 px-4 py-4 backdrop-blur-sm space-y-2">
+      <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-background/95 px-4 py-4 backdrop-blur-sm space-y-2">
+        {schemaError && (
+          <p className="text-sm text-destructive text-center pb-1">{schemaError}</p>
+        )}
         <button
           onClick={() => motor.saveSchemaEdit()}
           type="button"
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-4 font-semibold text-primary-foreground transition-all active:scale-[0.98]"
         >
           <Check className="h-5 w-5" />
-          Lagre og bekreft
+          {saveLabel}
         </button>
         <button
           onClick={() => motor.closeSchemaEdit()}
