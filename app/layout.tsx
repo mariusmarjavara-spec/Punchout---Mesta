@@ -54,6 +54,8 @@ export default function RootLayout({
   return (
     <html lang="no">
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
+        {/* Konfig lastes FØR motor — setter window.PUNCHOUT_CONFIG */}
+        <Script src="/punchout-config.js" strategy="beforeInteractive" />
         {/* Motor må lastes FØR React UI */}
         <Script src="/motor.js" strategy="beforeInteractive" />
         {children}

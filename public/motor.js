@@ -59,16 +59,16 @@ var ADMIN_CONFIG = {
     { key: "huskelapp", label: "Huskelapp (intern)" }
   ],
 
-  // Available wage codes
-  lonnskoder: [
+  // Available wage codes — override via punchout-config.js (window.PUNCHOUT_CONFIG.lonnskoder)
+  lonnskoder: (window.PUNCHOUT_CONFIG && window.PUNCHOUT_CONFIG.lonnskoder) || [
     { kode: "ORD", label: "Ordin\u00e6r" },
     { kode: "OT50", label: "Overtid 50%" },
     { kode: "OT100", label: "Overtid 100%" },
     { kode: "NATT", label: "Nattillegg" }
   ],
 
-  // Main order number (hovedordre) - used for main timesheet
-  hovedordre: "HOVED",
+  // Main order number — override via punchout-config.js (window.PUNCHOUT_CONFIG.hovedordre)
+  hovedordre: (window.PUNCHOUT_CONFIG && window.PUNCHOUT_CONFIG.hovedordre) || "HOVED",
 
   // Export configuration (edge → customer endpoint)
   userId: null,              // string — identifies the worker, default "anonymous"
@@ -1332,6 +1332,17 @@ function createSchemaInstance(schemaKey, origin, context) {
     // Kjøretøysjekk: pre-fill kjøretøy ID
     if (schemaKey === "kjoretoyssjekk" && context.kjoretoy && fields.hasOwnProperty("kjoretoy")) {
       fields.kjoretoy = context.kjoretoy;
+    }
+  }
+
+  // Apply config-driven defaults for optional SJA fields (always editable by user)
+  if (schemaKey === "sja_preday" && window.PUNCHOUT_CONFIG && window.PUNCHOUT_CONFIG.sjaDefaults) {
+    var sjaD = window.PUNCHOUT_CONFIG.sjaDefaults;
+    if (sjaD.sted && fields.hasOwnProperty("sted") && fields.sted === null) {
+      fields.sted = sjaD.sted;
+    }
+    if (sjaD.arbeidsvarsling && fields.hasOwnProperty("arbeidsvarsling") && fields.arbeidsvarsling === null) {
+      fields.arbeidsvarsling = sjaD.arbeidsvarsling;
     }
   }
 

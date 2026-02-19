@@ -1,6 +1,19 @@
 "use client";
 
 import { useMemo, useState, useEffect, useRef } from "react";
+
+// Type declaration for config loaded via punchout-config.js (public/)
+declare global {
+  interface Window {
+    PUNCHOUT_CONFIG?: {
+      lonnskoder?: Array<{ kode: string; label: string }>;
+      kjoretoy?: string[];
+      sjaDefaults?: { sted?: string; arbeidsvarsling?: string };
+      externalLinks?: Array<{ id: string; title: string; url: string }>;
+      hovedordre?: string;
+    };
+  }
+}
 import { useMotorState, useMotor, Schema, UxState, DayLog } from "@/hooks/use-motor-state";
 import { VoiceButton } from "./voice-button";
 import { cn } from "@/lib/utils";
@@ -71,20 +84,10 @@ function getTimeBasedGreeting(lang: Language): string {
   }
 }
 
-// Pre-day suggestions (external systems - delegation only)
-const EXTERNAL_SUGGESTIONS = [
-  {
-    id: "elrapp",
-    title: "Logg inn i Elrapp",
-    type: "external" as const,
-    url: "https://elrapp.no"
-  },
-  {
-    id: "linx",
-    title: "Linx-innlogging",
-    type: "external" as const,
-    url: "https://linx.no"
-  },
+// Fallback external links — overridden by punchout-config.js (window.PUNCHOUT_CONFIG.externalLinks)
+const DEFAULT_EXTERNAL_LINKS = [
+  { id: "elrapp", title: "Logg inn i Elrapp", url: "https://elrapp.no" },
+  { id: "linx",   title: "Linx-innlogging",   url: "https://linx.no"  },
 ];
 
 /**
@@ -105,6 +108,9 @@ export function StartDayPhase() {
   const voiceError = useMotorState('voiceError');
   const voiceSupported = useMotorState('voiceSupported');
   const motor = useMotor();
+
+  // Config-driven external links — read from punchout-config.js if available
+  const externalLinks = (typeof window !== 'undefined' && window.PUNCHOUT_CONFIG?.externalLinks) || DEFAULT_EXTERNAL_LINKS;
 
   // Language toggle (UI-only, not motor state)
   const [lang, setLang] = useState<Language>('NO');
@@ -507,7 +513,7 @@ export function StartDayPhase() {
             <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
               {t.external_heading}
             </h3>
-            {EXTERNAL_SUGGESTIONS.map((suggestion) => (
+            {externalLinks.map((suggestion) => (
               <div
                 key={suggestion.id}
                 className="rounded-xl border border-border bg-card p-4"
@@ -640,6 +646,8 @@ export function SchemaEditOverlay({ dayLog, uxState, motor }: SchemaEditOverlayP
   const schema = dayLog.schemas?.find(s => s.id === uxState.schemaId);
   // Debounce ref: avoids localStorage write per every keystroke
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Config-driven vehicle list (kjøretøysjekk)
+  const configKjoretoy: string[] = (typeof window !== 'undefined' && window.PUNCHOUT_CONFIG?.kjoretoy) || [];
 
   if (!schema) return null;
 
@@ -692,8 +700,27 @@ export function SchemaEditOverlay({ dayLog, uxState, motor }: SchemaEditOverlayP
                   {isRequired && <span className="ml-1 text-destructive">*</span>}
                 </label>
 
-                {/* Boolean field — three-state toggle */}
-                {typeof currentValue === "boolean" || (currentValue === "" && (key.endsWith("_ok") || key === "godkjent")) ? (
+                {/* Kjøretøy field — picker from config if available, otherwise free text */}
+                {key === "kjoretoy" && configKjoretoy.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {configKjoretoy.map((kj) => (
+                      <button
+                        key={kj}
+                        type="button"
+                        onClick={() => motor.setSchemaField(schema.id, key, kj)}
+                        className={cn(
+                          "rounded-lg px-3 py-2 text-sm font-medium font-mono transition-all active:scale-95",
+                          currentValue === kj
+                            ? "bg-primary text-primary-foreground"
+                            : "border border-border bg-background text-muted-foreground"
+                        )}
+                      >
+                        {kj}
+                      </button>
+                    ))}
+                  </div>
+                ) : /* Boolean field — three-state toggle */
+                typeof currentValue === "boolean" || (currentValue === "" && (key.endsWith("_ok") || key === "godkjent")) ? (
                   <div className="flex gap-2">
                     {(["true", "false", "null"] as const).map((opt) => {
                       const optLabel = opt === "true" ? "Ja" : opt === "false" ? "Nei" : "Ikke satt";
