@@ -90,7 +90,7 @@ var RUNTIME_CONFIG = (typeof window !== 'undefined' && window.PUNCHOUT_CONFIG)
   : {};
 
 // Override ADMIN_CONFIG with runtime values (single application point)
-if (RUNTIME_CONFIG.lonnskoder) {
+if (Array.isArray(RUNTIME_CONFIG.lonnskoder)) {
   // Normalise: support both label (standard) and navn (Norwegian alt) as display name
   ADMIN_CONFIG.lonnskoder = RUNTIME_CONFIG.lonnskoder.map(function(lk) {
     return { kode: lk.kode, label: lk.label || lk.navn || lk.kode };
