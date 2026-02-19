@@ -92,6 +92,10 @@ var voiceError = null;           // Human-readable error string, auto-clears
 var voiceErrorTimer = null;      // Timer for auto-clearing voiceError
 var voiceAutoTimeout = null;     // 15s auto-timeout for field safety
 
+// Schema error state (REACT_MODE)
+var schemaError = null;           // Human-readable validation error, auto-clears
+var schemaErrorTimer = null;      // Timer for auto-clearing schemaError
+
 // Orchestration state
 var lastOrchestration = null;  // Result of last voice extraction
 var pendingDraftDecisions = []; // Drafts awaiting decision at day end
@@ -355,6 +359,7 @@ function getSnapshot() {
     isListening: isListening,
     voiceState: voiceState,
     voiceError: voiceError,
+    schemaError: schemaError,
     voiceSupported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
     editingIndex: editingIndex,
     outboxStatus: getOutboxStatus(),
@@ -1398,11 +1403,6 @@ function startDay(inputText) {
     dayLog.phase = "pre";
   }
 
-  // In React mode, always go through pre-day phase for suggestions/external links
-  if (REACT_MODE && dayLog.phase !== "pre") {
-    dayLog.phase = "pre";
-  }
-
   appState = "ACTIVE";
   saveCurrentDay();
 
@@ -2375,6 +2375,36 @@ function saveSchemaEdit() {
     }
   }
 
+  // In REACT_MODE: validate required fields before confirming.
+  // Motor is last defense — React validation is helper layer only.
+  if (REACT_MODE) {
+    var missingLabels = [];
+    var defFieldKeys = Object.keys(def.fields);
+    for (var vi = 0; vi < defFieldKeys.length; vi++) {
+      var vfk = defFieldKeys[vi];
+      var vFieldDef = def.fields[vfk];
+      if (vFieldDef.required) {
+        var vVal = schema.fields[vfk];
+        if (vVal === null || vVal === undefined || vVal === "") {
+          missingLabels.push(vFieldDef.label);
+        }
+      }
+    }
+    if (missingLabels.length > 0) {
+      schemaError = "Fyll ut: " + missingLabels.join(", ");
+      if (schemaErrorTimer) clearTimeout(schemaErrorTimer);
+      schemaErrorTimer = setTimeout(function() {
+        schemaError = null;
+        schemaErrorTimer = null;
+        emitStateChange("schemaError");
+      }, 4000);
+      emitStateChange("schemaError");
+      return;
+    }
+    // Validation passed — clear any lingering error
+    if (schemaError) { clearSchemaError(); }
+  }
+
   // Mark pre-day schemas as confirmed when saved
   if (schema.origin === "pre_day" && dayLog.phase === "pre") {
     schema.status = "confirmed";
@@ -2418,6 +2448,27 @@ function closeSchemaEdit() {
     var el = document.getElementById("schemaEditOverlay");
     if (el) el.classList.add("hidden");
   }
+}
+
+// Clear schema validation error and notify React
+function clearSchemaError() {
+  if (schemaErrorTimer) { clearTimeout(schemaErrorTimer); schemaErrorTimer = null; }
+  schemaError = null;
+  emitStateChange("schemaError");
+}
+
+/**
+ * setSchemaField — React calls this per field change in the schema edit overlay.
+ * Mutates schema.fields[key] in place and persists. React re-reads via getSnapshot().
+ * Validation happens in saveSchemaEdit(), not here.
+ */
+function setSchemaField(schemaId, key, value) {
+  if (!dayLog) return;
+  var schema = findSchemaById(schemaId);
+  if (!schema) return;
+  if (!schema.fields.hasOwnProperty(key)) return;
+  schema.fields[key] = value;
+  saveCurrentDay();
 }
 
 // ============================================================
@@ -4498,6 +4549,24 @@ function resolveSchemaItem(schemaId, action) {
   if (!schema) return;
 
   if (action === "confirm") {
+    // RUH: arsak and tiltak must be filled before confirmation.
+    // Motor is last defense — UI should also validate, but motor never allows empty RUH.
+    if (schema.type === "ruh") {
+      var ruhMissing = [];
+      if (!schema.fields.arsak || schema.fields.arsak === "") ruhMissing.push("årsak");
+      if (!schema.fields.tiltak || schema.fields.tiltak === "") ruhMissing.push("tiltak");
+      if (ruhMissing.length > 0) {
+        schemaError = "RUH krever " + ruhMissing.join(" og ");
+        if (schemaErrorTimer) clearTimeout(schemaErrorTimer);
+        schemaErrorTimer = setTimeout(function() {
+          schemaError = null;
+          schemaErrorTimer = null;
+          emitStateChange("schemaError");
+        }, 4000);
+        emitStateChange("schemaError");
+        return;
+      }
+    }
     schema.status = "confirmed";
     schema.confirmedAt = new Date().toISOString();
     // Propagate entry flags for linked entries

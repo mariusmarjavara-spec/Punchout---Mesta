@@ -121,6 +121,7 @@ export interface MotorSnapshot {
   isListening: boolean;
   voiceState: 'idle' | 'listening' | 'processing' | 'error';
   voiceError: string | null;
+  schemaError: string | null;
   voiceSupported: boolean;
   editingIndex: number;
   outboxStatus: OutboxStatus;
@@ -144,6 +145,7 @@ declare global {
       openSchemaEdit: (schemaId: string) => void;
       closeSchemaEdit: () => void;
       saveSchemaEdit: () => void;
+      setSchemaField: (schemaId: string, key: string, value: unknown) => void;
       openDraftEdit: (ordre: string) => void;
       closeDraftEdit: () => void;
       saveDraftEdit: () => void;
