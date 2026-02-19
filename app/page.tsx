@@ -11,6 +11,11 @@ import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 
 export default function PunchoutApp() {
+  // Mount guard — server and first client render must produce identical HTML.
+  // Motor reads localStorage on client only, so we defer all motor-driven
+  // rendering until after mount to prevent hydration mismatch.
+  const [isMounted, setIsMounted] = useState(false);
+
   // Read state from motor (READ-ONLY)
   const appState = useMotorState('appState');
   const dayLog = useMotorState('dayLog');
@@ -24,6 +29,10 @@ export default function PunchoutApp() {
   // Local UI-only state (transitions, animations - NOT business logic)
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [displayedPhase, setDisplayedPhase] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Handle phase transitions (visual only)
   // Skip transition on initial mount (displayedPhase is null)
@@ -42,6 +51,15 @@ export default function PunchoutApp() {
       return () => clearTimeout(timer);
     }
   }, [currentPhase, displayedPhase]);
+
+  // Identical markup on server and first client render — no hydration mismatch
+  if (!isMounted) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-muted-foreground">Laster...</div>
+      </div>
+    );
+  }
 
   // Show loading state if motor not ready
   if (!motor) {
