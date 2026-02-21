@@ -1416,7 +1416,7 @@ function startDay(inputText) {
     entries: [],
     drafts: {},
     schemas: [],
-    phase: "active",  // "pre" | "active" | "ending"
+    phase: "pre",     // "pre" | "active" | "ending" — always start in pre-day phase
     status: "ACTIVE",
     mainTimeHandled: false  // Flag: main timesheet has been handled at end of day
   };
@@ -1427,15 +1427,23 @@ function startDay(inputText) {
   // Extract context for schema pre-fill (ordre, kjøretøy, etc.)
   var schemaContext = extractSchemaContext(text);
 
-  if (preDayKeys.length > 0) {
-    // Create schema instances for detected pre-day schemas
+  if (REACT_MODE) {
+    // Always create ALL available pre-day schemas as interactive cards in Start screen
+    var allPreDayKeys = ADMIN_CONFIG.availablePreDaySchemas || [];
+    for (var i = 0; i < allPreDayKeys.length; i++) {
+      var schema = createSchemaInstance(allPreDayKeys[i], "pre_day", schemaContext);
+      if (schema) {
+        dayLog.schemas.push(schema);
+      }
+    }
+  } else if (preDayKeys.length > 0) {
+    // Vanilla JS: only create schemas detected from voice/text input
     for (var i = 0; i < preDayKeys.length; i++) {
       var schema = createSchemaInstance(preDayKeys[i], "pre_day", schemaContext);
       if (schema) {
         dayLog.schemas.push(schema);
       }
     }
-    dayLog.phase = "pre";
   }
 
   appState = "ACTIVE";
@@ -1653,8 +1661,9 @@ function submitEntry(entryText, entryType) {
     }
   }
 
-  if (dayLog.phase === "pre") {
-    // Still in pre-day mode, skip to active
+  if (dayLog.phase === "pre" && !REACT_MODE) {
+    // Vanilla JS: auto-advance to active when first entry submitted during pre-day
+    // REACT_MODE: phase stays "pre" — user must explicitly press "Gå til drift"
     dayLog.phase = "active";
     saveCurrentDay();
   }
@@ -4371,7 +4380,9 @@ function confirmStructuredEntry(text, type, parsed) {
   if (dayLog && dayLog.phase === "ending") return;
   if (!parsed || !parsed.ordre) return;
 
-  if (dayLog.phase === "pre") {
+  if (dayLog.phase === "pre" && !REACT_MODE) {
+    // Vanilla JS: auto-advance to active when a structured entry is confirmed
+    // REACT_MODE: phase stays "pre" — user must explicitly press "Gå til drift"
     dayLog.phase = "active";
   }
 
