@@ -60,7 +60,7 @@ window.PUNCHOUT_CONFIG = {
   // Format: { id: "unikt-id", title: "Visningsnavn", url: "https://..." }
   // ============================================================
   externalLinks: [
-    { id: "elrapp", title: "Logg inn i Elrapp", url: "https://elrapp.no" },
+    { id: "elrapp", title: "Logg inn i Elrapp", url: "https://elrapp.atlas.vegvesen.no/login" },
     { id: "linx",   title: "Linx-innlogging",   url: "https://linx.no"  },
   ],
 
