@@ -558,7 +558,9 @@ function init() {
     showStaleDayBanner();
   }
 
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 
   // Restore overlay state if needed (e.g., after refresh during ending phase)
   restoreOverlayState();
@@ -1661,7 +1663,9 @@ function lockDay() {
   }
 
   saveCurrentDay();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 function startNewDay() {
@@ -1669,7 +1673,9 @@ function startNewDay() {
   appState = "NOT_STARTED";
   readyToLock = false;
   saveCurrentDay();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 // --- Entry actions ---
@@ -1777,7 +1783,9 @@ function submitEntry(entryText, entryType) {
   document.getElementById("entryType").value = "notat";
   setVoiceStatus("");
   saveCurrentDay();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 // Deferred orchestration for React mode (runs on next tick after entry is visible)
@@ -1895,7 +1903,9 @@ function saveEdit(index, newText) {
     saveCurrentDay();
   }
   cancelEdit();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 function cancelEdit() {
@@ -2127,7 +2137,9 @@ function continueFromPreDay() {
   dayLog.phase = "active";
   saveCurrentDay();
   hidePreDayOverlay();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 /**
@@ -2152,7 +2164,9 @@ function forceStartDay() {
   dayLog.phase = "active";
   saveCurrentDay();
   hidePreDayOverlay();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 // ============================================================
@@ -2230,7 +2244,9 @@ function ruhDecision(decision) {
   pendingRuhQuestion = null;
   hideRuhQuestionOverlay();
   saveCurrentDay();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 // ============================================================
@@ -2301,7 +2317,9 @@ function vaktloggConfirm(decision) {
   pendingImmediateConfirm = null;
   hideVaktloggConfirmOverlay();
   saveCurrentDay();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 // ============================================================
@@ -2510,7 +2528,9 @@ function saveSchemaEdit() {
       }
     }
   } else {
-    render();
+    if (!REACT_MODE) {
+      render();
+    }
   }
 }
 
@@ -4366,7 +4386,9 @@ function proceedToFinished() {
   appState = "FINISHED";
   clearUxState();  // Clear UI state when decisions complete
   saveCurrentDay();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 // ============================================================
@@ -4516,11 +4538,11 @@ function getUnresolvedItems() {
   if (!dayLog) return [];
   var items = [];
 
-  // 1. Schemas pending decision (non-friksjon, non-sja_preday)
+  // 1. Schemas pending decision (non-friksjon, non-pre_day)
   if (dayLog.schemas) {
     for (var i = 0; i < dayLog.schemas.length; i++) {
       var s = dayLog.schemas[i];
-      if (s.type === "sja_preday") continue;
+      if (s.origin === "pre_day") continue; // Pre-day schemas are recommended, never blocking
       if (s.type === "friksjonsmaling") continue;
       if (s.status === "draft" || s.status === "deferred" || s.status === "force_skipped") {
         items.push({
@@ -5292,13 +5314,17 @@ function confirmExternalTask(system) {
 
   saveCurrentDay();
   clearUxState();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 function closeExternalInstructionOverlay() {
   // User can close without confirming (task remains unconfirmed)
   clearUxState();
-  render();
+  if (!REACT_MODE) {
+    render();
+  }
 }
 
 // ============================================================
