@@ -112,6 +112,14 @@ export interface StorageError {
   raw?: string;
 }
 
+export interface RuntimeConfig {
+  lonnskoder: Array<{ kode: string; label: string }>;
+  sjaDefaults: { sted?: string; arbeidsvarsling?: string } | null;
+  kjoretoy: string[];
+  externalLinks: Array<{ id: string; title: string; url: string }>;
+  hoofdordre: string;
+}
+
 export interface MotorSnapshot {
   appState: AppState;
   dayLog: DayLog | null;
@@ -129,6 +137,7 @@ export interface MotorSnapshot {
   readyToLock: boolean;
   unresolvedCount: number;
   exportStatus: 'disabled' | 'sending' | 'sent' | 'failed' | 'no_data';
+  config: RuntimeConfig;
 }
 
 // Declare global Motor interface

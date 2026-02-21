@@ -21,6 +21,41 @@ var DEFAULT_LONNSKODER = [
   { kode: "NATT",  label: "Nattillegg" }
 ];
 
+
+// ============================================================
+// PILOT DEFAULTS — eksplisitt fallback for all config.
+// Brukes av normalizeConfig() når RUNTIME_CONFIG mangler felt.
+// Endre her, ikke spredt i koden.
+// ============================================================
+var PILOT_DEFAULTS = {
+  lonnskoder: DEFAULT_LONNSKODER,
+  sjaDefaults: null,
+  kjoretoy: [],
+  externalLinks: [
+    { id: "elrapp", title: "Logg inn i Elrapp", url: "https://elrapp.no" },
+    { id: "linx",   title: "Linx-innlogging",   url: "https://linx.no"  },
+  ],
+  hoofdordre: "HOVED",
+};
+
+// ============================================================
+// normalizeConfig — tar råconfig, returnerer fullstendig
+// normalisert config med eksplisitt fallback for hvert felt.
+// Kalles én gang ved init; NORMALIZED_CONFIG brukes overalt.
+// ============================================================
+function normalizeConfig(raw) {
+  return {
+    lonnskoder: Array.isArray(raw.lonnskoder)
+      ? raw.lonnskoder.map(function(lk) {
+          return { kode: lk.kode, label: lk.label || lk.naam || lk.kode };
+        })
+      : PILOT_DEFAULTS.lonnskoder.map(function(lk) { return { kode: lk.kode, label: lk.label }; }),
+    sjaDefaults: raw.sjaDefaults || null,
+    kjoretoy: Array.isArray(raw.kjoretoy) ? raw.kjoretoy : PILOT_DEFAULTS.kjoretoy,
+    externalLinks: Array.isArray(raw.externalLinks) ? raw.externalLinks : PILOT_DEFAULTS.externalLinks,
+    hoofdordre: raw.hoofdordre || PILOT_DEFAULTS.hoofdordre,
+  };
+}
 var ADMIN_CONFIG = {
   // Required schemas - admin-controlled, blocks start if when() returns true
   // Schema is REQUIRED only if it appears here with when() returning true
@@ -89,16 +124,9 @@ var RUNTIME_CONFIG = (typeof window !== 'undefined' && window.PUNCHOUT_CONFIG)
   ? window.PUNCHOUT_CONFIG
   : {};
 
-// Override ADMIN_CONFIG with runtime values (single application point)
-if (Array.isArray(RUNTIME_CONFIG.lonnskoder)) {
-  // Normalise: support both label (standard) and navn (Norwegian alt) as display name
-  ADMIN_CONFIG.lonnskoder = RUNTIME_CONFIG.lonnskoder.map(function(lk) {
-    return { kode: lk.kode, label: lk.label || lk.navn || lk.kode };
-  });
-}
-if (RUNTIME_CONFIG.hovedordre) {
-  ADMIN_CONFIG.hovedordre = RUNTIME_CONFIG.hovedordre;
-}
+var NORMALIZED_CONFIG = normalizeConfig(RUNTIME_CONFIG);
+ADMIN_CONFIG.lonnskoder = NORMALIZED_CONFIG.lonnskoder;
+ADMIN_CONFIG.hoofdordre = NORMALIZED_CONFIG.hoofdordre;
 
 // --- State ---
 // Only one active day at a time. null = no active day.
@@ -390,7 +418,8 @@ function getSnapshot() {
     exportEnabled: !!ADMIN_CONFIG.exportEndpoint,
     readyToLock: readyToLock,
     unresolvedCount: getUnresolvedCount(),
-    exportStatus: getExportStatus()
+    exportStatus: getExportStatus(),
+    config: NORMALIZED_CONFIG
   };
 }
 
@@ -1360,8 +1389,8 @@ function createSchemaInstance(schemaKey, origin, context) {
   }
 
   // Apply config-driven defaults for optional SJA fields (always editable by user)
-  if (schemaKey === "sja_preday" && RUNTIME_CONFIG.sjaDefaults) {
-    var sjaD = RUNTIME_CONFIG.sjaDefaults;
+  if (schemaKey === "sja_preday" && NORMALIZED_CONFIG.sjaDefaults) {
+    var sjaD = NORMALIZED_CONFIG.sjaDefaults;
     if (sjaD.sted && fields.hasOwnProperty("sted") && fields.sted === null) {
       fields.sted = sjaD.sted;
     }

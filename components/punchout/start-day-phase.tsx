@@ -2,18 +2,7 @@
 
 import { useMemo, useState, useEffect, useRef } from "react";
 
-// Type declaration for config loaded via punchout-config.js (public/)
-declare global {
-  interface Window {
-    PUNCHOUT_CONFIG?: {
-      lonnskoder?: Array<{ kode: string; label: string }>;
-      kjoretoy?: string[];
-      sjaDefaults?: { sted?: string; arbeidsvarsling?: string };
-      externalLinks?: Array<{ id: string; title: string; url: string }>;
-      hovedordre?: string;
-    };
-  }
-}
+
 import { useMotorState, useMotor, Schema, UxState, DayLog } from "@/hooks/use-motor-state";
 import { VoiceButton } from "./voice-button";
 import { cn } from "@/lib/utils";
@@ -84,12 +73,6 @@ function getTimeBasedGreeting(lang: Language): string {
   }
 }
 
-// Fallback external links — overridden by punchout-config.js (window.PUNCHOUT_CONFIG.externalLinks)
-const DEFAULT_EXTERNAL_LINKS = [
-  { id: "elrapp", title: "Logg inn i Elrapp", url: "https://elrapp.no" },
-  { id: "linx",   title: "Linx-innlogging",   url: "https://linx.no"  },
-];
-
 /**
  * StartDayPhase - Handles NOT_STARTED and ACTIVE(pre) phases
  *
@@ -109,12 +92,8 @@ export function StartDayPhase() {
   const voiceSupported = useMotorState('voiceSupported');
   const motor = useMotor();
 
-  // Single SSR-safe access point for runtime config
-  const runtimeConfig = typeof window !== 'undefined' && (window as any).PUNCHOUT_CONFIG
-    ? (window as any).PUNCHOUT_CONFIG
-    : null;
-  const externalLinks: Array<{ id: string; title: string; url: string }> =
-    runtimeConfig?.externalLinks || DEFAULT_EXTERNAL_LINKS;
+  const config = useMotorState('config');
+  const externalLinks = config?.externalLinks ?? [];
 
   // Language toggle (UI-only, not motor state)
   const [lang, setLang] = useState<Language>('NO');
@@ -650,11 +629,8 @@ export function SchemaEditOverlay({ dayLog, uxState, motor }: SchemaEditOverlayP
   const schema = dayLog.schemas?.find(s => s.id === uxState.schemaId);
   // Debounce ref: avoids localStorage write per every keystroke
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Single SSR-safe access point for runtime config
-  const runtimeConfig = typeof window !== 'undefined' && (window as any).PUNCHOUT_CONFIG
-    ? (window as any).PUNCHOUT_CONFIG
-    : null;
-  const configKjoretoy: string[] = runtimeConfig?.kjoretoy || [];
+  const config = useMotorState('config');
+  const configKjoretoy: string[] = config?.kjoretoy ?? [];
 
   if (!schema) return null;
 
